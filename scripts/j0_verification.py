@@ -32,6 +32,7 @@ STATUTS FINAUX
 """
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -53,18 +54,47 @@ OFFICIAL = {
 }
 
 
-def get_json(path, out_dir, name):
-    """GET public, sans cookie ; snapshot brut horodaté ; None si échec."""
+class SnapshotStore:
+    """Un répertoire immuable par exécution (snapshots/<horodatage UTC>/), jamais
+    réutilisé ni écrasé, avec un manifeste par run : fichier, URL, retrieved_at,
+    statut HTTP, SHA-256."""
+
+    def __init__(self, out_dir):
+        root = Path(out_dir) / "snapshots"
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        cand, n = root / run_id, 2
+        while cand.exists():
+            cand, n = root / f"{run_id}-{n}", n + 1
+        cand.mkdir(parents=True)
+        self.dir, self.entries = cand, []
+
+    def save(self, name, raw, url, http_status):
+        fname, n = f"{name}.json", 2
+        while (self.dir / fname).exists():
+            fname, n = f"{name}-{n}.json", n + 1
+        (self.dir / fname).write_bytes(raw)
+        self.entries.append({
+            "file": fname,
+            "url": url,
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "http_status": http_status,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        })
+        (self.dir / "manifest.json").write_text(
+            json.dumps(self.entries, indent=2, ensure_ascii=False), encoding="utf-8")
+        return self.dir / fname
+
+
+def get_json(path, store, name):
+    """GET public, sans cookie ; snapshot dans le run courant ; None si échec."""
     url = path if path.startswith("http") else f"{API}{path}"
     req = urllib.request.Request(url, headers=HEADERS, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            raw = resp.read()
+            raw, status = resp.read(), resp.status
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
         return None, f"échec GET {url} : {e}"
-    snap = out_dir / "snapshots" / f"{name}.json"
-    snap.parent.mkdir(parents=True, exist_ok=True)
-    snap.write_bytes(raw)
+    store.save(name, raw, url, status)
     try:
         return json.loads(raw), None
     except json.JSONDecodeError as e:
@@ -91,9 +121,9 @@ class Check:
         self.observed, self.status, self.note = observed, "R", note
 
 
-def run_api_checks(out_dir, entry_id=None, league_id=None):
+def run_api_checks(out_dir, store, entry_id=None, league_id=None):
     checks = []
-    boot, err = get_json("/bootstrap-static/", out_dir, "bootstrap-static")
+    boot, err = get_json("/bootstrap-static/", store, "bootstrap-static")
 
     c = Check("api_reachable", "API FPL publique accessible sans authentification",
               f"{API}/bootstrap-static/", "api")
@@ -194,7 +224,7 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
     c = Check("deadline_h90_obs", "Observation : écart deadline → premier coup d'envoi, "
                                   "mesuré sur toutes les GW programmées",
               f"{API}/bootstrap-static/ (events) + {API}/fixtures/", "api")
-    fixtures, err = get_json("/fixtures/", out_dir, "fixtures")
+    fixtures, err = get_json("/fixtures/", store, "fixtures")
     try:
         deadlines = {e["id"]: e["deadline_time"] for e in boot["events"]}
         firsts = {}
@@ -236,7 +266,7 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
     names = [s.get("name", "") for s in boot.get("element_stats", [])]
     pat = re.compile(r"defen|clearance|block|intercept|tackle|recover", re.I)
     hits = [n for n in names if pat.search(n)]
-    live, _ = get_json("/event/1/live/", out_dir, "event-1-live")
+    live, _ = get_json("/event/1/live/", store, "event-1-live")
     live_keys = []
     try:
         live_keys = sorted(k for k in (live["elements"][0]["stats"].keys()) if pat.search(k))
@@ -264,7 +294,7 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
                  "/entry/<ID>/history/"),
                 (f"/entry/{entry_id}/event/1/picks/", f"entry-gw1-picks-{entry_id}",
                  "/entry/<ID>/event/1/picks/")]:
-            data, _ = get_json(suffix, out_dir, name)
+            data, _ = get_json(suffix, store, name)
             parts.append(f"{shown} → {'OK' if data is not None else 'ÉCHEC'}")
         obs = " ; ".join(parts)
         (c.ok if "ÉCHEC" not in obs else c.ko)(
@@ -277,7 +307,7 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
         c = Check("league_public", f"Mini-ligue <ID masqué {label}> lisible sans "
                                    "authentification (classement + entry IDs des rivaux)",
                   f"{API}/leagues-classic/<ID>/standings/", "api")
-        data, e2 = get_json(f"/leagues-classic/{league_id}/standings/", out_dir,
+        data, e2 = get_json(f"/leagues-classic/{league_id}/standings/", store,
                             f"league-{league_id}-standings")
         if data and data.get("standings", {}).get("results") is not None:
             n = len(data["standings"]["results"])
@@ -366,8 +396,10 @@ def write_report(out_dir, api_checks, man_checks):
         "une ligne « Observation » constate une régularité mesurée et ne prouve pas "
         "la règle générale, confirmée à part en section manuelle.",
         "Partage : ce rapport ne contient ni ID complet, ni nom de manager — il est "
-        "transmissible tel quel. Les snapshots (`snapshots/`) contiennent les données "
-        "réelles : ils restent locaux et ne sont jamais commités ni transmis.",
+        "transmissible tel quel. Chaque exécution écrit ses snapshots dans un "
+        "répertoire immuable `snapshots/<horodatage UTC>/` avec un manifeste "
+        "(fichier, URL, retrieved_at, statut HTTP, SHA-256) ; ces données réelles "
+        "restent locales et ne sont jamais commitées ni transmises.",
         "\n## Checks automatisés (API officielle)\n",
         "| Règle | Source | Valeur observée | Statut |",
         "|---|---|---|---|",
@@ -411,7 +443,8 @@ def main():
     out_dir = args.out
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    api_checks, _ = run_api_checks(out_dir, args.entry_id, args.league_id)
+    store = SnapshotStore(out_dir)
+    api_checks, _ = run_api_checks(out_dir, store, args.entry_id, args.league_id)
     manual_path = args.manual or (out_dir / "j0_manual.json")
     manual = build_manual_template(manual_path)
     man_checks = manual_checks(manual)
@@ -419,7 +452,7 @@ def main():
 
     print(f"Rapport : {out_dir / 'j0_report.md'}")
     print(f"Confirmations manuelles : {manual_path} (à remplir puis relancer avec --manual)")
-    print(f"Snapshots : {out_dir / 'snapshots'}")
+    print(f"Snapshots de ce run : {store.dir} (manifest.json inclus)")
     ko = [c.cid for c in api_checks if c.status == "R"]
     if ko:
         print(f"Checks API en [R] : {', '.join(ko)}")

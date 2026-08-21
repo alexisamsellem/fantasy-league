@@ -30,7 +30,13 @@ python3 scripts/j0_verification.py --manual j0_output/j0_manual.json \
 
 **Ce qui se partage et ce qui reste local.** Seul `j0_output/j0_report.md` se transmet : il ne contient ni ID complet, ni nom de manager (les checks `--entry-id`/`--league-id` y sont masqués). Les `snapshots/`, `j0_manual.json` et `game_settings_dump.json` restent locaux ; le `.gitignore` du dépôt les exclut, et rien de tout cela n'est publié dans l'artefact (qui ne contient que le dossier de conception). Un exemple anonymisé du rapport attendu : `docs/exemple-j0-report.md`.
 
-Sorties dans `j0_output/` : `j0_report.md` (chaque règle avec source, valeur observée et statut final [F]/[H]/[R]), `snapshots/` (réponses brutes horodatées — premier snapshot point-in-time du projet), `game_settings_dump.json` (tous les paramètres exposés par l'API, pour inspection).
+**Commande unique (tests de fumée puis J0)** :
+
+```bash
+python3 -m unittest discover -s tests && python3 scripts/j0_verification.py
+```
+
+Sorties dans `j0_output/` : `j0_report.md` (chaque règle avec source, valeur observée et statut final [F]/[H]/[R]), `snapshots/<horodatage UTC>/` (un répertoire immuable par exécution, jamais écrasé, avec `manifest.json` : fichier, URL, retrieved_at, statut HTTP, SHA-256), `game_settings_dump.json` (tous les paramètres exposés par l'API, pour inspection). Les durcissements reportés sont consignés dans `docs/backlog-v0.md`.
 
 Partage des rôles, conforme au dossier : **les pages officielles Help/Rules et Premier League sont l'autorité pour les règles** (barème, vice-capitaine, revente, BPS, DEFCON…) — elles passent par la section manuelle ; **l'API vérifie les données et paramètres opérationnels** qu'elle expose explicitement (tailles d'effectif, quotas par poste, chips et fenêtres, deadlines mesurées contre les coups d'envoi, unité des prix, schéma des statistiques). Le dossier ne promeut une ligne [F◦] → [F] que sur la foi de ce rapport.
 
