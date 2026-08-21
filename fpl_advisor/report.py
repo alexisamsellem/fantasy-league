@@ -119,12 +119,17 @@ def render(rec):
     # Projections, incertitude, hypothèses
     lines += [
         "\n## Projections, incertitude, hypothèses critiques",
-        "\nMéthode : minutes probabilistes (statut officiel × historique récent "
-        "pondéré, ou prior par prix sans historique) ; buts/assists par xG/xA "
-        "par 90 officiels (ou prior par poste et prix si < 180 minutes) ajustés "
-        "par un modèle d'équipe multiplicatif sur les forces FPL ; clean sheets "
-        "en Poisson ; DEFCON empirique sur les comptages CBIT officiels ; bonus "
-        "au taux saisonnier. EP = somme des composantes.",
+        "\nMéthode : minutes probabilistes rétrécies (statut officiel × "
+        "titularisations observées, pondérées par récence, rétrécies vers un "
+        "prior issu de la saison précédente quand elle est collectée) ; "
+        "xG/xA rétrécis en continu vers un prior de poste enrichi du rôle sur "
+        "coups de pied arrêtés — aucun seuil de bascule à 180 minutes ; la "
+        "force offensive du club n'est ajoutée qu'à hauteur de la part du taux "
+        "issue du prior (anti double comptage) ; adversité par faiblesse "
+        "défensive de l'adversaire et terrain ; clean sheets en Poisson ; "
+        "DEFCON et bonus rétrécis vers des priors de poste (bonus rapporté aux "
+        "minutes réellement jouées, non à un nombre d'apparitions approximé). "
+        "EP = somme des composantes.",
         "\nIncertitude essentielle : la colonne « EP si 90' » isole le risque de "
         "minutes — un grand écart avec EP signale que la décision dépend surtout "
         "de la titularisation, pas du talent.",
@@ -137,8 +142,9 @@ def render(rec):
     ]
     thin = [r for r in rec["squad"] if "prior" in r["minutes_basis"]]
     if thin:
-        lines.append("\nJoueurs projetés SANS historique de minutes (prior prix, "
-                     "fiabilité faible) : " + ", ".join(r["web_name"] for r in thin) + ".")
+        lines.append("\nJoueurs projetés sans historique de minutes exploitable "
+                     "(prior de poste, confiance faible) : "
+                     + ", ".join(r["web_name"] for r in thin) + ".")
 
     # Rivaux
     em, st = rec["exposure_meta"], rec["standings"]
@@ -223,6 +229,15 @@ def render_initial(rec):
         "\nToutes les décisions restent soumises à validation humaine. Ce mode "
         "n'utilise ni team ID ni ligue : données publiques uniquement.",
     ]
+    if rec.get("synthetic"):
+        lines.append(
+            "\n> **DÉMO SYNTHÉTIQUE — AUCUNE VALEUR DE RECOMMANDATION.** Les "
+            "joueurs, clubs et historiques de ce rapport sont fabriqués. Ce "
+            "rendu prouve que le pipeline tourne ; il ne dit rien de la "
+            "qualité des projections sur données réelles.")
+    lines.append(
+        f"\n**Confiance de la couche de projection : {rec['confidence'].upper()}** "
+        f"— {rec['confidence_why']}.")
 
     # Synthèse
     d, m, f = (sum(1 for p in rec["xi"] if p["element_type"] == t) for t in (2, 3, 4))
@@ -253,18 +268,78 @@ def render_initial(rec):
     lines += _bench_lines(rec["bench"])
     lines += _armband_lines(band)
 
+    # Scénarios et stabilité du top 15
+    sc = rec["scenarios"]
+    lines += [
+        "\n## Trois scénarios et stabilité de l'effectif",
+        "\nL'incertitude n'est pas un habillage d'un chiffre unique : chaque "
+        "scénario re-projette tous les joueurs avec un rétrécissement différent "
+        "vers les priors, puis RE-OPTIMISE un effectif complet. L'écart entre "
+        "scénarios s'ouvre avec l'horizon (l'incertitude croît GW après GW).",
+        "\n| Scénario | Effectif optimal du scénario | Effectif recommandé évalué ici | Communs avec le recommandé | Lecture |",
+        "|---|---|---|---|---|",
+    ]
+    for r in sc:
+        cv = f"{r['central_value']:.1f}" if r["central_value"] is not None else "n/a"
+        lines.append(f"| {r['label']} | {r['own_value']:.1f} pts | {cv} pts | "
+                     f"{r['overlap']}/15 | {r['note']} |")
+    span = max(r["own_value"] for r in sc) - min(r["own_value"] for r in sc)
+    lines.append(
+        f"\nAmplitude entre scénario prudent et favorable : **{span:.1f} pts** "
+        f"sur {len(gws)} GW. Recouvrement minimal du top 15 : "
+        f"**{rec['min_overlap']}/15** (seuil de stabilité : "
+        f"{rec['stability_threshold']}/15).")
+    if rec["stable"]:
+        lines.append(
+            "\nEffectif jugé **relativement stable** : le noyau survit aux trois "
+            "jeux de priors. Cela ne dit rien de sa justesse — un effectif peut "
+            "être stable et faux si les priors sont faux dans le même sens.")
+    else:
+        lines.append(
+            "\n> **EFFECTIF INSTABLE.** Le top 15 change de "
+            f"{15 - rec['min_overlap']} joueurs selon le jeu de priors retenu. "
+            "Il faut le lire comme UNE option parmi plusieurs équivalentes, pas "
+            "comme une recommandation ferme : l'écart entre ces joueurs est "
+            "inférieur à l'incertitude du modèle.")
+
+    # Provenance des données
+    lines += [
+        "\n## Provenance des données et sources manquantes",
+        "\n| Source du contrat | Présente | Détail | Ce qui se dégrade sans elle |",
+        "|---|---|---|---|",
+    ]
+    for r in rec["availability"]:
+        mark = "oui" if r["present"] else "**NON**"
+        lines.append(f"| `{r['key']}` | {mark} | {r['detail']} | {r['without']} |")
+    lines.append(f"\nAdversité d'équipe : {rec['team_factor_source']}.")
+    absent = [r for r in rec["availability"] if not r["present"]]
+    if absent:
+        lines.append(
+            "\nSources absentes de ce snapshot — à fournir pour rendre le top 15 "
+            "défendable :\n" + "\n".join(f"- `{r['key']}` → {r['source']}"
+                                          for r in absent))
+
     # Projections, incertitude, hypothèses
     lines += [
         "\n## Projections, incertitude, hypothèses critiques",
         "\nMéthode : même moteur de projection que le mode hebdomadaire — "
-        "minutes probabilistes (statut officiel × historique récent pondéré, "
-        "ou prior par prix sans historique) ; buts/assists par xG/xA par 90 "
-        "officiels (ou prior par poste et prix si < 180 minutes) ajustés par "
-        "un modèle d'équipe multiplicatif sur les forces FPL ; clean sheets "
-        "en Poisson ; bonus au taux saisonnier. EP = somme des composantes.",
+        "minutes probabilistes rétrécies (statut officiel × titularisations "
+        "observées × prior de la saison précédente, jamais 0 % ni 100 % pour "
+        "un joueur disponible) ; xG/xA rétrécis en continu vers un prior de "
+        "poste enrichi du rôle sur coups de pied arrêtés, sans seuil de "
+        "bascule ; force offensive du club ajoutée seulement à hauteur de la "
+        "part du taux issue du prior (anti double comptage) ; adversité par "
+        "faiblesse défensive de l'adversaire et terrain ; clean sheets en "
+        "Poisson ; bonus et DEFCON rétrécis vers des priors de poste. "
+        "EP = somme des composantes.",
         "\nIncertitude essentielle : la colonne « EP si 90' » isole le risque "
         "de minutes — un grand écart avec EP signale que le choix dépend "
         "surtout de la titularisation, pas du talent.",
+        "\nCe qui n'est PAS prouvé : aucune de ces valeurs de prior n'a été "
+        "calibrée sur des résultats 2026/27. Le moteur est explicite sur ses "
+        "sources, il n'est pas démontré juste. Le juge de niveau 1 reste la "
+        "calibration de P(60+) mesurée après coup (voir le banc d'essai : "
+        "`python3 -m fpl_advisor initial-bench`).",
         "\nHypothèses critiques [H] : équipe statique (aucun transfert) sur "
         f"l'horizon de {len(gws)} GW ; optimisation par montée locale (échanges "
         "un-pour-un depuis l'effectif le moins cher) — optimum local, pas "

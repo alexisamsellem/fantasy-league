@@ -6,6 +6,7 @@
   python3 -m fpl_advisor run            # collect puis advise (rituel de deadline)
   python3 -m fpl_advisor demo           # bout-en-bout sur données synthétiques
   python3 -m fpl_advisor initial-squad  # effectif initial 15 joueurs (sans config)
+  python3 -m fpl_advisor initial-bench  # banc d'essai : interne vs baseline publique
 """
 
 import argparse
@@ -15,6 +16,7 @@ from .advise import build_recommendation
 from .api import load_config
 from .collect import (collect_all, collect_public, latest_snapshot_dir,
                       load_duckdb, load_public_snapshot, load_snapshot)
+from .bench import build_bench, write_bench
 from .initial import build_initial_recommendation
 from .report import write_initial_report, write_report
 
@@ -43,24 +45,44 @@ def _initial(parsed, data_dir):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="fpl_advisor")
     ap.add_argument("command",
-                    choices=["collect", "advise", "run", "demo", "initial-squad"])
+                    choices=["collect", "advise", "run", "demo", "initial-squad",
+                             "initial-bench"])
     ap.add_argument("--config", default="config.local.json")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--demo", action="store_true",
-                    help="initial-squad : jeu synthétique hors ligne, aucun réseau")
+                    help="initial-squad/initial-bench : jeu synthétique hors "
+                         "ligne, aucun réseau — invariants seulement, ne vaut "
+                         "aucune validation de qualité")
+    ap.add_argument("--with-history", action="store_true",
+                    help="initial-squad : collecte aussi les saisons passées "
+                         "(un GET public par joueur, long mais c'est la source "
+                         "qui rend un top 15 de pré-saison défendable)")
     args = ap.parse_args(argv)
 
     if args.command == "demo":
         from .demo import build_parsed
         return _advise(build_parsed(), args.data_dir)
 
-    if args.command == "initial-squad":
+    if args.command in ("initial-squad", "initial-bench"):
         if args.demo:
             from .demo import build_parsed_initial
-            return _initial(build_parsed_initial(), args.data_dir)
-        run_dir = collect_public(args.data_dir)
-        print(f"Snapshot : {run_dir}")
-        return _initial(load_public_snapshot(run_dir), args.data_dir)
+            parsed = build_parsed_initial()
+        else:
+            run_dir = collect_public(args.data_dir, with_history=args.with_history)
+            print(f"Snapshot : {run_dir}")
+            parsed = load_public_snapshot(run_dir)
+        if args.command == "initial-bench":
+            bench = build_bench(parsed)
+            path = write_bench(bench, args.data_dir)
+            print(f"Banc d'essai figé : {path}")
+            print(f"Baseline : {bench['baseline_field']} — {bench['baseline_reason']}")
+            print(f"Recouvrement interne/baseline : {bench['recouvrement']}/15 ; "
+                  f"confiance projections : {bench['confiance_projections']}")
+            if bench["synthetic"]:
+                print("ATTENTION : données synthétiques — invariants seulement, "
+                      "aucune validation de qualité.")
+            return 0
+        return _initial(parsed, args.data_dir)
 
     cfg = load_config(args.config)
     if args.command in ("collect", "run"):

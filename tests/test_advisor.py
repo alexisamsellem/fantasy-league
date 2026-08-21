@@ -75,12 +75,18 @@ class MinutesTests(unittest.TestCase):
         self.assertEqual(m["p_play"], 0.0)
 
     def test_historique_pondere_recent_d_abord(self):
-        p = {"status": "a", "chance_of_playing_next_round": None,
+        p = {"id": 1, "status": "a", "chance_of_playing_next_round": None,
              "team": 1, "element_type": 3, "now_cost": 80}
-        # 90 min récents, 0 ancien → p60 > 0.5 grâce au poids de récence
-        m = model.minutes_model(p, [90, 90, 0, 0, 0], [p])
-        self.assertGreater(m["p60"], 0.5)
-        self.assertEqual(m["basis"], "historique 5 GW")
+        # Le poids de récence doit ORDONNER les estimations : 90 min récents
+        # puis des zéros anciens valent mieux que l'inverse. La valeur absolue,
+        # elle, est volontairement rétrécie (plus de certitude à 5 GW).
+        recent = model.minutes_model(p, [90, 90, 0, 0, 0])
+        ancien = model.minutes_model(p, [0, 0, 0, 90, 90])
+        self.assertGreater(recent["p60"], ancien["p60"])
+        self.assertIn("historique 5 GW", recent["basis"])
+        for m in (recent, ancien):        # jamais de certitude fabriquée
+            self.assertGreater(m["p_play"], 0.0)
+            self.assertLess(m["p_play"], 1.0)
 
 
 class TransferTests(unittest.TestCase):

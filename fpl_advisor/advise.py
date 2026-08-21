@@ -7,11 +7,12 @@ from .rivals import local_exposure, standings_summary
 MARKET_PER_POSITION = 15   # présélection du marché pour le scan de transfert
 
 
-def _player_row(parsed, p, gw, teams, means):
-    proj = model.project_player(parsed, p, gw, teams, means)
+def _player_row(parsed, p, gw, teams=None, means=None, scenario=None):
+    proj = model.project_player(parsed, p, gw, scenario=scenario)
     forced = {"p_play": 1.0, "p60": 1.0, "p_cameo": 0.0, "p0": 0.0,
-              "xmin": 90.0, "basis": "forcé titulaire", "avail": 1.0}
-    if_start = model.project_player(parsed, p, gw, teams, means, minutes=forced)
+              "xmin": 90.0, "basis": "forcé titulaire", "avail": 1.0,
+              "confidence": "n/a", "n_gw": 0}
+    if_start = model.project_player(parsed, p, gw, minutes=forced, scenario=scenario)
     m = proj["minutes"]
     return {
         "id": p["id"], "web_name": p.get("web_name", f"#{p['id']}"),

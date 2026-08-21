@@ -34,8 +34,10 @@ aucun réseau requis), `initial-squad` (effectif initial, section suivante).
 ## Avant la GW1 : construire l'effectif initial
 
 ```bash
-python3 -m fpl_advisor initial-squad          # données publiques réelles
-python3 -m fpl_advisor initial-squad --demo   # jeu synthétique, hors ligne
+python3 -m fpl_advisor initial-squad --with-history   # recommandé (voir plus bas)
+python3 -m fpl_advisor initial-squad                  # sans les saisons passées
+python3 -m fpl_advisor initial-bench                  # banc d'essai vs baseline publique
+python3 -m fpl_advisor initial-squad --demo           # synthétique, hors ligne
 ```
 
 Aucune configuration requise — ni team ID ni ligue : ce mode ne collecte que
@@ -51,7 +53,49 @@ Le rapport (`data/reports/GW<n>-effectif-initial-<horodatage>.md`) suit le
 même format que le mode hebdomadaire : effectif complet avec EP par GW, XI,
 banc ordonné, capitaine + vice (règle FPL exacte), projections, incertitude,
 hypothèses [H], déclencheurs de révision, limites. Il ne contient aucune
-donnée personnelle.
+donnée personnelle. Il ajoute deux sections propres à ce mode :
+
+- **Trois scénarios et stabilité** : les projections sont recalculées sous un
+  jeu de priors prudent, central et favorable, et un effectif complet est
+  ré-optimisé sous chacun. Le rapport affiche l'amplitude entre scénarios et le
+  recouvrement du top 15 ; en dessous de 12 joueurs communs sur 15, l'effectif
+  est explicitement déclaré **instable** — une option parmi plusieurs, pas une
+  recommandation ferme.
+- **Provenance des données** : chaque source du contrat est listée présente ou
+  absente, avec ce qui se dégrade sans elle.
+
+`--with-history` ajoute un GET public par joueur (`element-summary`) pour
+récupérer les saisons passées. C'est long, et c'est **la** donnée qui rend un
+classement de pré-saison défendable : sans elle, les priors sont plats par
+poste et le rapport le signale en confiance « faible ». Détail complet dans
+`docs/contrat-de-donnees.md`.
+
+### Ce que valent ces projections
+
+La couche de projection rétrécit chaque estimation vers un prior explicite
+plutôt que de faire confiance aux petits échantillons : minutes fondées sur les
+titularisations observées et la saison précédente (jamais 0 % ni 100 % pour un
+joueur disponible), xG/xA rétrécis en continu sans seuil de bascule, hiérarchie
+offensive tirée du poste et du rôle sur coups de pied arrêtés plutôt que du
+prix, force offensive du club comptée une seule fois, bonus rapporté aux
+minutes réellement jouées, DEFCON rétréci vers un prior de poste.
+
+Aucune de ces valeurs de prior n'est calibrée : ce sont des ordres de grandeur
+posés avant observation (`[H, NON CALIBRÉ]` dans `fpl_advisor/priors.py`). Le
+moteur est explicite sur ses sources ; il n'est pas démontré juste. La preuve
+attendue vient du banc d'essai.
+
+### Banc d'essai contre une baseline publique
+
+`initial-bench` fige, depuis le même snapshot et avec le même optimiseur, deux
+effectifs légaux : celui des projections internes cumulées sur GW1→GW4, et
+celui d'une baseline publique naïve (champ officiel `ep_next`, ou repli
+déterministe `selected_by_percent` défini à l'avance). Le fichier
+`data/reports/GW<n>-banc-essai-initial.json` contient les deux effectifs, les
+décisions figées par GW et le protocole de comparaison arrêté **avant** tout
+résultat : score cumulé, score hors bonus de capitaine, joueurs à 0 minute et
+calibration de `P(60+)` (score de Brier + tableau de fiabilité). C'est cette
+dernière métrique qui juge le système, pas l'écart de score sur quatre GW.
 
 ## Où trouver team_id et league_id
 
@@ -86,6 +130,13 @@ python3 -m unittest discover -s tests
 Hors ligne, sans dépendance : contraintes du XI vérifiées contre une recherche
 exhaustive, formule du brassard, modèle de minutes, seuil de transfert,
 EO locale (capitaine double), bout-en-bout complet sur le jeu synthétique,
-plus les tests du protocole J0 (snapshots immuables, trace probante) et ceux
-du mode effectif initial (quotas, budget, limite de club, optimum local,
-rapport, CLI sans config).
+plus les tests du protocole J0 (snapshots immuables, trace probante), ceux du
+mode effectif initial (quotas, budget, limite de club, optimum local, rapport,
+CLI sans config), les régressions de la couche de projection (prix compté deux
+fois, certitude excessive après une apparition, petit échantillon offensif non
+rétréci, DEFCON binaire, présélection dominée par la GW1, instabilité non
+détectée) et le test d'acceptation du banc d'essai.
+
+Ces tests démontrent des invariants sur des données synthétiques. Ils ne
+démontrent **pas** que les projections sont bonnes : cela demande quatre GW
+réellement jouées et se mesure avec `initial-bench`.

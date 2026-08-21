@@ -9,9 +9,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import priors
 from .api import SnapshotStore, get_json
 
 HISTORY_GWS = 6          # profondeur d'historique de minutes collectée
+TEAM_REFERENCE = "data/reference/team_priors.csv"   # contrat : priors.DATA_CONTRACT
 MAX_LEAGUE_PAGES = 5     # mini-ligue privée : largement suffisant
 MAX_RIVALS = 25
 
@@ -50,11 +52,36 @@ def _collect_common(store):
     return boot, closed
 
 
-def collect_public(data_dir="data"):
+def collect_element_history(store, elements, limit=None):
+    """Saisons passées joueur par joueur (GET /element-summary/{id}/).
+
+    C'est la source du contrat `history_past` : sans elle, les priors de
+    pré-saison sont plats par poste. Un appel public par joueur, aucun
+    paramètre personnel. Retourne (n_ok, n_echecs)."""
+    ok = fail = 0
+    for e in elements if limit is None else elements[:limit]:
+        data, err = get_json(f"/element-summary/{e['id']}/", store,
+                             f"element-summary-{e['id']}")
+        if data is None:
+            fail += 1
+        else:
+            ok += 1
+    return ok, fail
+
+
+def collect_public(data_dir="data", with_history=False, history_limit=None):
     """Collecte minimale du mode effectif initial : aucune équipe, aucune
-    ligue, aucune config requise. Retourne le répertoire du snapshot."""
+    ligue, aucune config requise. Retourne le répertoire du snapshot.
+
+    `with_history` ajoute les saisons passées (un GET public par joueur) :
+    c'est long mais c'est la donnée qui rend un top 15 de pré-saison
+    défendable."""
     store = SnapshotStore(data_dir)
-    _collect_common(store)
+    boot, _ = _collect_common(store)
+    if with_history:
+        ok, fail = collect_element_history(store, boot.get("elements", []),
+                                           history_limit)
+        print(f"Saisons passées collectées : {ok} joueurs ({fail} échecs)")
     return store.dir
 
 
@@ -141,6 +168,8 @@ def load_snapshot(run_dir, cfg):
         "fixtures": _read(run_dir, "fixtures") or [],
         "live": live,
         "events": events,
+        "history_past": read_history_past(run_dir, boot.get("elements", [])),
+        "team_ref": priors.load_team_reference(TEAM_REFERENCE, boot.get("teams", [])),
         "closed_gws": closed,
         "last_closed_gw": last,
         "next_gw": next_gw_id(events),
@@ -157,7 +186,19 @@ def load_snapshot(run_dir, cfg):
     }
 
 
-def load_public_snapshot(run_dir):
+def read_history_past(run_dir, elements):
+    """{element_id: [saisons passées]} depuis les fichiers element-summary du
+    snapshot. Dict vide si la collecte n'a pas été faite — jamais fabriqué."""
+    run_dir = Path(run_dir)
+    out = {}
+    for e in elements:
+        data = _read(run_dir, f"element-summary-{e['id']}")
+        if data and data.get("history_past"):
+            out[e["id"]] = data["history_past"]
+    return out
+
+
+def load_public_snapshot(run_dir, team_reference=TEAM_REFERENCE):
     """Recharge un snapshot public (mode effectif initial) : même structure
     'parsed' que load_snapshot mais sans équipe, ligue ni rivaux."""
     run_dir = Path(run_dir)
@@ -171,6 +212,7 @@ def load_public_snapshot(run_dir):
         data = _read(run_dir, f"event-{gw}-live")
         if data:
             live[gw] = data
+    elements = boot.get("elements", [])
     return {
         "run_dir": str(run_dir),
         "bootstrap": boot,
@@ -180,6 +222,8 @@ def load_public_snapshot(run_dir):
         "closed_gws": closed,
         "last_closed_gw": closed[-1] if closed else None,
         "next_gw": next_gw_id(events),
+        "history_past": read_history_past(run_dir, elements),
+        "team_ref": priors.load_team_reference(team_reference, boot.get("teams", [])),
         "my": {}, "standings": [], "rivals": {},
         "team_id": None, "league_id": None,
     }
