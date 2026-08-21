@@ -7,19 +7,28 @@ Compagnon de `scripts/j0_verification.py` et du dossier de conception (v2).
 Prérequis : Python 3.9+, aucune dépendance externe, aucune connexion à ton compte FPL. Le script est strictement en lecture seule : uniquement des GET sur les endpoints publics, sans identifiant, sans cookie, sans session.
 
 ```bash
+# Récupérer le code (une fois)
+git clone -b claude/fpl-decision-agent-j5gf9d https://github.com/alexisamsellem/fantasy-league.git
+cd fantasy-league
+
 # Étape 1 — checks automatisés + génération du gabarit manuel
 python3 scripts/j0_verification.py
 
-# Étape 2 — ouvrir j0_output/j0_manual.json, et pour chaque règle :
-#   ouvrir l'URL "authority" (Help/Rules ou page officielle Premier League),
-#   lire la règle, remplir "confirmed": true / false / "h" (+ "note" si utile)
+# Étape 2 — ouvrir j0_output/j0_manual.json et, pour chaque règle, ouvrir l'URL
+# "authority", lire la règle, puis remplir TOUS les champs de trace (voir ci-dessous)
 
 # Étape 3 — finaliser le rapport
 python3 scripts/j0_verification.py --manual j0_output/j0_manual.json
 
-# Optionnel, quand les IDs sont connus — vérifie la lisibilité publique :
-python3 scripts/j0_verification.py --entry-id 1234567 --league-id 98765
+# Optionnel, quand les IDs sont connus — vérifie la lisibilité publique
+# (le rapport masque les IDs ; seuls les snapshots locaux les contiennent) :
+python3 scripts/j0_verification.py --manual j0_output/j0_manual.json \
+        --entry-id <TEAM_ID> --league-id <LEAGUE_ID>
 ```
+
+**Trace probante exigée pour tout [F] manuel.** Dans `j0_manual.json`, une règle n'est promue [F] que si `confirmed: true` s'accompagne des quatre éléments : `url_consulted` (l'URL officielle réellement ouverte ; à défaut l'authority pré-remplie fait foi), `page_title_or_section` (titre de page ou section lue), `verified_on` (date de vérification), `confirmed_statement` (l'énoncé effectivement lu qui confirme la règle). Un simple `true` sans ces champs reste [R] — le script l'impose. `confirmed: false` = règle infirmée → [R] avec correction du dossier ; `"h"` = l'énoncé s'avère être une hypothèse, pas une règle → [H].
+
+**Ce qui se partage et ce qui reste local.** Seul `j0_output/j0_report.md` se transmet : il ne contient ni ID complet, ni nom de manager (les checks `--entry-id`/`--league-id` y sont masqués). Les `snapshots/`, `j0_manual.json` et `game_settings_dump.json` restent locaux ; le `.gitignore` du dépôt les exclut, et rien de tout cela n'est publié dans l'artefact (qui ne contient que le dossier de conception). Un exemple anonymisé du rapport attendu : `docs/exemple-j0-report.md`.
 
 Sorties dans `j0_output/` : `j0_report.md` (chaque règle avec source, valeur observée et statut final [F]/[H]/[R]), `snapshots/` (réponses brutes horodatées — premier snapshot point-in-time du projet), `game_settings_dump.json` (tous les paramètres exposés par l'API, pour inspection).
 

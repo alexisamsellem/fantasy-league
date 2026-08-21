@@ -1,3 +1,22 @@
+# Artefacts Python
 __pycache__/
 *.pyc
+
+# Sorties J0 et toute donnée réelle (team ID, ID de ligue, noms des managers,
+# snapshots API) — jamais commitées, jamais publiées dans l'artefact
 j0_output/
+**/snapshots/
+j0_report*.md
+j0_manual*.json
+game_settings_dump.json
+
+# Données, bases et configuration locales susceptibles de contenir des identifiants
+data/
+*.duckdb
+*.db
+.env
+.env.*
+*.local.json
+*.local.yaml
+ids*.json
+config-perso*

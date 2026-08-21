@@ -189,8 +189,10 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
         c.ko("liste chips non exposée", "confirmer sur la page officielle (section manuelle)")
     checks.append(c)
 
-    # Deadline à H-90 : mesurée sur toutes les GW programmées
-    c = Check("deadline_h90", "Deadline à 90 min du premier coup d'envoi de chaque GW",
+    # Deadline : OBSERVATION mesurée sur les GW programmées. Ne prouve pas la
+    # règle générale — celle-ci relève de Help/Rules (ligne manuelle deadline_rule).
+    c = Check("deadline_h90_obs", "Observation : écart deadline → premier coup d'envoi, "
+                                  "mesuré sur toutes les GW programmées",
               f"{API}/bootstrap-static/ (events) + {API}/fixtures/", "api")
     fixtures, err = get_json("/fixtures/", out_dir, "fixtures")
     try:
@@ -206,7 +208,8 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
                        for ev in firsts if ev in deadlines})
         obs = f"écarts observés (min) sur {len(firsts)} GW : {gaps}"
         if gaps == [90]:
-            c.ok(obs)
+            c.ok(obs, "observation cohérente — la règle générale reste à confirmer "
+                      "sur Help/Rules (ligne manuelle deadline_rule)")
         elif gaps:
             c.ko(obs, "écart(s) ≠ 90 min — noter les GW concernées et corriger le dossier")
         else:
@@ -246,33 +249,43 @@ def run_api_checks(out_dir, entry_id=None, league_id=None):
         c.ko(obs, "champs introuvables — inspecter les snapshots à la main")
     checks.append(c)
 
-    # Lisibilité publique d'une équipe (rivaux) — optionnel
+    # Lisibilité publique d'une équipe (rivaux) — optionnel.
+    # Le rapport masque l'ID (partageable) ; l'ID complet ne vit que dans les
+    # snapshots locaux, jamais transmis.
     if entry_id:
-        c = Check("entry_public", f"Équipe {entry_id} lisible sans authentification "
+        label = f"…{str(entry_id)[-2:]}"
+        c = Check("entry_public", f"Équipe <ID masqué {label}> lisible sans authentification "
                                   "(profil, historique, picks post-deadline)",
-                  f"{API}/entry/{{id}}/ …", "api")
+                  f"{API}/entry/<ID>/ …", "api")
         parts = []
-        for suffix, name in [(f"/entry/{entry_id}/", "entry"),
-                             (f"/entry/{entry_id}/history/", "entry-history"),
-                             (f"/entry/{entry_id}/event/1/picks/", "entry-gw1-picks")]:
-            data, e2 = get_json(suffix, out_dir, f"{name}-{entry_id}")
-            parts.append(f"{suffix} → {'OK' if data is not None else 'ÉCHEC'}")
+        for suffix, name, shown in [
+                (f"/entry/{entry_id}/", f"entry-{entry_id}", "/entry/<ID>/"),
+                (f"/entry/{entry_id}/history/", f"entry-history-{entry_id}",
+                 "/entry/<ID>/history/"),
+                (f"/entry/{entry_id}/event/1/picks/", f"entry-gw1-picks-{entry_id}",
+                 "/entry/<ID>/event/1/picks/")]:
+            data, _ = get_json(suffix, out_dir, name)
+            parts.append(f"{shown} → {'OK' if data is not None else 'ÉCHEC'}")
         obs = " ; ".join(parts)
-        (c.ok if "ÉCHEC" not in obs else c.ko)(obs)
+        (c.ok if "ÉCHEC" not in obs else c.ko)(
+            obs, "ID masqué dans ce rapport ; données réelles en snapshots locaux uniquement")
         checks.append(c)
 
-    # Lisibilité publique d'une mini-ligue classic — optionnel
+    # Lisibilité publique d'une mini-ligue classic — optionnel (ID masqué idem)
     if league_id:
-        c = Check("league_public", f"Mini-ligue {league_id} lisible sans authentification "
-                                   "(classement + entry IDs des rivaux)",
-                  f"{API}/leagues-classic/{{id}}/standings/", "api")
+        label = f"…{str(league_id)[-2:]}"
+        c = Check("league_public", f"Mini-ligue <ID masqué {label}> lisible sans "
+                                   "authentification (classement + entry IDs des rivaux)",
+                  f"{API}/leagues-classic/<ID>/standings/", "api")
         data, e2 = get_json(f"/leagues-classic/{league_id}/standings/", out_dir,
                             f"league-{league_id}-standings")
         if data and data.get("standings", {}).get("results") is not None:
             n = len(data["standings"]["results"])
-            c.ok(f"OK — {n} managers en page 1 (entry IDs présents)")
+            c.ok(f"OK — {n} managers en page 1 (entry IDs présents)",
+                 "aucun nom ni ID dans ce rapport ; détail en snapshots locaux uniquement")
         else:
-            c.ko("ÉCHEC ou structure inattendue", e2 or "la ligue est peut-être fermée à la lecture")
+            c.ko("ÉCHEC ou structure inattendue",
+                 e2 or "la ligue est peut-être fermée à la lecture")
         checks.append(c)
 
     return checks, boot
@@ -284,6 +297,8 @@ MANUAL_ITEMS = [
                          "joue 0 minute dans la GW", HELP_RULES_URL),
     ("captain_x2", "Capitaine ×2 ; Triple Captain ×3", HELP_RULES_URL),
     ("hit_cost", "Transfert au-delà des gratuits : −4 pts", HELP_RULES_URL),
+    ("deadline_rule", "Règle générale : la deadline de chaque Gameweek est fixée "
+                      "90 minutes avant son premier coup d'envoi", HELP_RULES_URL),
     ("defcon_thresholds", "DEFCON : 2 pts si CBIT ≥ 10 (DEF) / CBIRT ≥ 12 (MIL-ATT), "
                           "plafond 2 pts/match", OFFICIAL["defcon"]),
     ("bps_2627", "BPS 2026/27 : chevauchement DEFCON réduit, gardiens/latéraux mieux "
@@ -298,9 +313,14 @@ MANUAL_ITEMS = [
 
 
 def build_manual_template(path):
+    """Gabarit avec champs de trace probante. Un [F] manuel exige les quatre :
+    url_consulted (ou l'authority par défaut), page_title_or_section,
+    verified_on (date), confirmed_statement (l'énoncé effectivement lu)."""
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
-    template = {k: {"claim": claim, "authority": url, "confirmed": None, "note": ""}
+    template = {k: {"claim": claim, "authority": url, "confirmed": None,
+                    "url_consulted": "", "page_title_or_section": "",
+                    "verified_on": "", "confirmed_statement": "", "note": ""}
                 for k, claim, url in MANUAL_ITEMS}
     path.write_text(json.dumps(template, indent=2, ensure_ascii=False), encoding="utf-8")
     return template
@@ -312,14 +332,26 @@ def manual_checks(manual):
         c = Check(key, claim, url, "manuel")
         entry = manual.get(key, {})
         v, note = entry.get("confirmed"), entry.get("note", "")
-        if v is True:
-            c.ok("confirmé sur la page officielle", note)
+        c.authority = (entry.get("url_consulted") or "").strip() or url
+        title = (entry.get("page_title_or_section") or "").strip()
+        date = (entry.get("verified_on") or "").strip()
+        stmt = (entry.get("confirmed_statement") or "").strip()
+        trace_ok = bool(title and date and stmt)
+        trace = f"{date} — section « {title} » — énoncé confirmé : « {stmt} »"
+        if v is True and trace_ok:
+            c.ok(trace, note)
+        elif v is True:
+            c.ko("confirmed=true SANS trace probante",
+                 "un [F] exige URL, titre/section, date et énoncé confirmé — reste [R]")
         elif v is False:
-            c.ko("INFIRMÉ sur la page officielle", note or "corriger le dossier")
+            c.ko(f"INFIRMÉ — {trace if trace_ok else 'trace incomplète'}",
+                 note or "corriger le dossier")
         elif v == "h":
-            c.observed, c.status, c.note = "requalifié en hypothèse", "H", note
+            c.observed = f"requalifié en hypothèse — {trace if trace_ok else 'sans trace'}"
+            c.status, c.note = "H", note
         else:
-            c.ko("non confirmé (champ 'confirmed' vide)", "ouvrir la source et répondre")
+            c.ko("non confirmé (champ 'confirmed' vide)",
+                 "ouvrir la source et répondre, trace à l'appui")
         out.append(c)
     return out
 
@@ -329,9 +361,13 @@ def write_report(out_dir, api_checks, man_checks):
     lines = [
         "# Rapport J0 — vérification des faits réglementaires",
         f"\nGénéré le {now}. Lecture seule, endpoints publics uniquement, aucun identifiant.",
-        "Snapshots bruts : `snapshots/`. Autorité des règles : pages officielles "
-        "Help/Rules et Premier League ; l'API vérifie les données et paramètres "
-        "opérationnels qu'elle expose explicitement.",
+        "Autorité des règles : pages officielles Help/Rules et Premier League. "
+        "L'API vérifie les paramètres opérationnels qu'elle expose explicitement ; "
+        "une ligne « Observation » constate une régularité mesurée et ne prouve pas "
+        "la règle générale, confirmée à part en section manuelle.",
+        "Partage : ce rapport ne contient ni ID complet, ni nom de manager — il est "
+        "transmissible tel quel. Les snapshots (`snapshots/`) contiennent les données "
+        "réelles : ils restent locaux et ne sont jamais commités ni transmis.",
         "\n## Checks automatisés (API officielle)\n",
         "| Règle | Source | Valeur observée | Statut |",
         "|---|---|---|---|",
@@ -341,8 +377,10 @@ def write_report(out_dir, api_checks, man_checks):
         lines.append(f"| {c.claim} | {c.authority} | {c.observed}{note} | [{c.status}] |")
     lines += [
         "\n## Confirmations manuelles (autorité : pages officielles)\n",
-        "Remplir `j0_manual.json` (`confirmed`: true / false / \"h\"), puis relancer "
-        "avec `--manual j0_manual.json`.\n",
+        "Remplir `j0_manual.json` puis relancer avec `--manual j0_manual.json`. "
+        "Un [F] exige la trace probante complète : `url_consulted` (sinon l'authority), "
+        "`page_title_or_section`, `verified_on` (date) et `confirmed_statement` "
+        "(l'énoncé effectivement lu). Un `confirmed: true` sans ces champs reste [R].\n",
         "| Règle | Source | Valeur observée | Statut |",
         "|---|---|---|---|",
     ]
