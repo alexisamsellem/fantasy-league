@@ -121,3 +121,25 @@ def build_parsed(now=None):
         "standings": standings, "rivals": rivals,
         "team_id": 1000, "league_id": 424242,
     }
+
+
+def build_parsed_initial(now=None):
+    """Variante pré-saison du jeu synthétique, pour le mode effectif initial :
+    toutes les deadlines dans le futur, aucun historique live, compteurs de
+    saison remis à zéro (le moteur bascule sur les priors par prix), aucune
+    équipe ni ligue — comme avant la première deadline d'une vraie saison."""
+    now = now or datetime.now(timezone.utc)
+    parsed = build_parsed(now)
+    for i, e in enumerate(parsed["events"]):
+        e["deadline_time"] = _iso(now + timedelta(days=2 + 7 * i))
+    for e in parsed["bootstrap"]["elements"]:
+        e["minutes"] = 0
+        e["bonus"] = 0
+        e["yellow_cards"] = 0
+    parsed.update({
+        "run_dir": "(démo synthétique pré-saison — aucune donnée réelle)",
+        "live": {}, "closed_gws": [], "last_closed_gw": None, "next_gw": 1,
+        "my": {}, "standings": [], "rivals": {},
+        "team_id": None, "league_id": None,
+    })
+    return parsed

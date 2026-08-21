@@ -29,7 +29,29 @@ précédents.
 
 Autres commandes : `collect` (collecte seule), `advise` (recommandation depuis
 le dernier snapshot), `demo` (bout-en-bout sur données 100 % synthétiques,
-aucun réseau requis).
+aucun réseau requis), `initial-squad` (effectif initial, section suivante).
+
+## Avant la GW1 : construire l'effectif initial
+
+```bash
+python3 -m fpl_advisor initial-squad          # données publiques réelles
+python3 -m fpl_advisor initial-squad --demo   # jeu synthétique, hors ligne
+```
+
+Aucune configuration requise — ni team ID ni ligue : ce mode ne collecte que
+des données publiques (bootstrap, calendrier, historique live s'il existe).
+Il construit un effectif de 15 joueurs sous les contraintes FPL exactes —
+budget 100,0 M£, 2 GB / 5 DEF / 5 MIL / 3 ATT, 3 joueurs maximum par club —
+en optimisant une équipe statique (aucun transfert) sur les 4 premières GW à
+venir : pour chaque GW, meilleur XI possible + bonus exact du brassard.
+Optimisation par montée locale (échanges un-pour-un depuis l'effectif le
+moins cher) : optimum local documenté, pas d'optimum global garanti.
+
+Le rapport (`data/reports/GW<n>-effectif-initial-<horodatage>.md`) suit le
+même format que le mode hebdomadaire : effectif complet avec EP par GW, XI,
+banc ordonné, capitaine + vice (règle FPL exacte), projections, incertitude,
+hypothèses [H], déclencheurs de révision, limites. Il ne contient aucune
+donnée personnelle.
 
 ## Où trouver team_id et league_id
 
@@ -64,4 +86,6 @@ python3 -m unittest discover -s tests
 Hors ligne, sans dépendance : contraintes du XI vérifiées contre une recherche
 exhaustive, formule du brassard, modèle de minutes, seuil de transfert,
 EO locale (capitaine double), bout-en-bout complet sur le jeu synthétique,
-plus les tests du protocole J0 (snapshots immuables, trace probante).
+plus les tests du protocole J0 (snapshots immuables, trace probante) et ceux
+du mode effectif initial (quotas, budget, limite de club, optimum local,
+rapport, CLI sans config).
