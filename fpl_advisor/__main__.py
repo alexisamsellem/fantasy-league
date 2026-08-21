@@ -16,9 +16,11 @@ from .advise import build_recommendation
 from .api import load_config
 from .collect import (collect_all, collect_public, latest_snapshot_dir,
                       load_duckdb, load_public_snapshot, load_snapshot)
-from .bench import build_bench, write_bench
-from .initial import build_initial_recommendation
+from .evaluation.bench import build_bench, write_bench
+from .forecasting import ProjectionSet
+from .initial import build_contract, build_from_contract
 from .report import write_initial_report, write_report
+from .wiring import selection_backend
 
 
 def _advise(parsed, data_dir):
@@ -31,14 +33,15 @@ def _advise(parsed, data_dir):
     return 0
 
 
-def _initial(parsed, data_dir):
-    rec = build_initial_recommendation(parsed)
+def _initial(contract, data_dir):
+    rec = build_from_contract(contract)
     path = write_initial_report(rec, data_dir)
-    band = rec["armband"]
+    band, v = rec["armband"], rec["verdict"]
     print(f"Rapport : {path}")
-    print(f"GW{rec['gw']} — effectif initial : {rec['cost'] / 10:.1f} M£ utilisés "
+    print(f"GW{rec['gw']} — {v.label} : {rec['cost'] / 10:.1f} M£ utilisés "
           f"(banque {rec['bank'] / 10:.1f} M£) ; capitaine {band['captain']['web_name']}, "
           f"vice {band['vice']['web_name']}")
+    print(f"Contrôle qualité : {v.state.upper()} — {v.summary}")
     return 0
 
 
@@ -53,6 +56,12 @@ def main(argv=None):
                     help="initial-squad/initial-bench : jeu synthétique hors "
                          "ligne, aucun réseau — invariants seulement, ne vaut "
                          "aucune validation de qualité")
+    ap.add_argument("--freeze-projections", metavar="FICHIER",
+                    help="écrit le contrat de projections dans un fichier JSON "
+                         "réutilisable sans le snapshot")
+    ap.add_argument("--from-projections", metavar="FICHIER",
+                    help="repart d'un contrat de projections figé : aucune "
+                         "collecte, aucun recalcul de prévision")
     ap.add_argument("--with-history", action="store_true",
                     help="initial-squad : collecte aussi les saisons passées "
                          "(un GET public par joueur, long mais c'est la source "
@@ -64,25 +73,37 @@ def main(argv=None):
         return _advise(build_parsed(), args.data_dir)
 
     if args.command in ("initial-squad", "initial-bench"):
-        if args.demo:
-            from .demo import build_parsed_initial
-            parsed = build_parsed_initial()
+        if args.from_projections:
+            contract = ProjectionSet.load(args.from_projections)
+            print(f"Projections figées relues : {args.from_projections} "
+                  f"(contrat v{contract.contract_version}, modèle "
+                  f"{contract.model_version}, connues au {contract.as_of}) — "
+                  "aucune donnée brute lue.")
         else:
-            run_dir = collect_public(args.data_dir, with_history=args.with_history)
-            print(f"Snapshot : {run_dir}")
-            parsed = load_public_snapshot(run_dir)
+            if args.demo:
+                from .demo import build_parsed_initial
+                parsed = build_parsed_initial()
+            else:
+                run_dir = collect_public(args.data_dir, with_history=args.with_history)
+                print(f"Snapshot : {run_dir}")
+                parsed = load_public_snapshot(run_dir)
+            contract = build_contract(parsed)
+            if args.freeze_projections:
+                print(f"Projections figées : {contract.save(args.freeze_projections)}")
         if args.command == "initial-bench":
-            bench = build_bench(parsed)
+            bench = build_bench(contract, selection_backend())
             path = write_bench(bench, args.data_dir)
             print(f"Banc d'essai figé : {path}")
             print(f"Baseline : {bench['baseline_field']} — {bench['baseline_reason']}")
             print(f"Recouvrement interne/baseline : {bench['recouvrement']}/15 ; "
                   f"confiance projections : {bench['confiance_projections']}")
+            print("Contrôle qualité (projections seules) : "
+                  f"{bench['verdict_qualite_projections']['state'].upper()}")
             if bench["synthetic"]:
                 print("ATTENTION : données synthétiques — invariants seulement, "
                       "aucune validation de qualité.")
             return 0
-        return _initial(parsed, args.data_dir)
+        return _initial(contract, args.data_dir)
 
     cfg = load_config(args.config)
     if args.command in ("collect", "run"):

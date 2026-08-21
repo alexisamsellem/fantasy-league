@@ -221,11 +221,17 @@ def render_initial(rec):
     gws = rec["horizon"]
     band = rec["armband"]
     c, v = band["captain"], band["vice"]
+    verdict = rec.get("verdict")
+    bloque = verdict is not None and verdict.state == "bloqué"
+    titre = ("CANDIDAT TECHNIQUE — publication refusée" if bloque
+             else "conseiller FPL V0")
     lines = [
-        f"# Effectif initial GW{rec['gw']} — conseiller FPL V0",
+        f"# Effectif initial GW{rec['gw']} — {titre}",
         f"\nGénéré le {now}. Deadline GW{rec['gw']} : {rec['deadline']}. "
         f"Snapshot : `{rec['run_dir']}`. Historique de minutes disponible : "
-        f"{rec['n_history_gws']} GW.",
+        f"{rec['n_history_gws']} GW. Contrat de projections "
+        f"v{rec.get('contract_version', '?')} "
+        f"(modèle {rec.get('model_version', '?')}).",
         "\nToutes les décisions restent soumises à validation humaine. Ce mode "
         "n'utilise ni team ID ni ligue : données publiques uniquement.",
     ]
@@ -238,6 +244,24 @@ def render_initial(rec):
     lines.append(
         f"\n**Confiance de la couche de projection : {rec['confidence'].upper()}** "
         f"— {rec['confidence_why']}.")
+
+    # Contrôle qualité — décide si l'on a le droit de parler de recommandation.
+    if verdict is not None:
+        lines += [
+            "\n## Contrôle qualité des projections",
+            f"\nVerdict : **{verdict.state.upper()}**. {verdict.summary}",
+            "\n| Contrôle | État | Détail |", "|---|---|---|",
+        ]
+        for chk in verdict.checks:
+            mark = {"accepté": "accepté", "avertissement": "**avertissement**",
+                    "bloqué": "**BLOQUÉ**"}[chk.state]
+            lines.append(f"| `{chk.key}` | {mark} | {chk.detail} |")
+        if bloque:
+            lines.append(
+                "\n> Cet effectif est un **candidat technique**, calculé pour le "
+                "diagnostic. Ce n'est pas une recommandation : au moins un "
+                "contrôle bloquant a échoué. Le corriger demande de meilleures "
+                "données ou de meilleures projections, pas un autre optimiseur.")
 
     # Synthèse
     d, m, f = (sum(1 for p in rec["xi"] if p["element_type"] == t) for t in (2, 3, 4))
@@ -255,7 +279,9 @@ def render_initial(rec):
     # Effectif complet
     header = "| Joueur | Poste | Club | Prix | " \
         + " | ".join(f"EP GW{g}" for g in gws) + " | Total |"
-    lines += ["\n## Effectif recommandé (15 joueurs)", "\n" + header,
+    titre_effectif = ("Candidat technique (15 joueurs)" if bloque
+                      else "Effectif recommandé (15 joueurs)")
+    lines += [f"\n## {titre_effectif}", "\n" + header,
               "|" + "---|" * (5 + len(gws))]
     order = {1: 0, 2: 1, 3: 2, 4: 3}
     for r in sorted(rec["squad"], key=lambda x: (order[x["element_type"]], -x["ep4"])):

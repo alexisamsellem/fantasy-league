@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fpl_advisor import initial, model, priors           # noqa: E402
+from fpl_advisor.forecasting import build_projection_set  # noqa: E402
 from fpl_advisor.demo import build_parsed_initial        # noqa: E402
 from fpl_advisor.report import render_initial            # noqa: E402
 
@@ -238,7 +239,8 @@ class PreselectionHorizonTests(unittest.TestCase):
         # Le club 1 ne joue pas la GW1, mais joue les GW suivantes.
         parsed["fixtures"] = [f for f in parsed["fixtures"]
                               if not (f["event"] == 1 and 1 in (f["team_h"], f["team_a"]))]
-        pool_ids = {r["id"] for r in initial.build_pool(parsed, gws)}
+        contract = build_projection_set(parsed, gws)
+        pool_ids = {r["id"] for r in initial.build_pool(contract.rows_for("central"))}
         club1 = [e["id"] for e in parsed["bootstrap"]["elements"] if e["team"] == 1]
         self.assertTrue(pool_ids & set(club1),
                         "aucun joueur du club sans match en GW1 dans le vivier — "
@@ -247,7 +249,8 @@ class PreselectionHorizonTests(unittest.TestCase):
     def test_le_classement_du_vivier_utilise_l_ep_cumulee(self):
         parsed = build_parsed_initial()
         gws = [1, 2, 3, 4]
-        pool = initial.build_pool(parsed, gws)
+        contract = build_projection_set(parsed, gws)
+        pool = initial.build_pool(contract.rows_for("central"))
         for r in pool:
             self.assertAlmostEqual(r["ep4"], sum(r["eps"].values()), places=9)
             self.assertEqual(len(r["eps"]), len(gws))

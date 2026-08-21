@@ -81,7 +81,7 @@ prix, force offensive du club comptée une seule fois, bonus rapporté aux
 minutes réellement jouées, DEFCON rétréci vers un prior de poste.
 
 Aucune de ces valeurs de prior n'est calibrée : ce sont des ordres de grandeur
-posés avant observation (`[H, NON CALIBRÉ]` dans `fpl_advisor/priors.py`). Le
+posés avant observation (`[H, NON CALIBRÉ]` dans `fpl_advisor/forecasting/priors.py`). Le
 moteur est explicite sur ses sources ; il n'est pas démontré juste. La preuve
 attendue vient du banc d'essai.
 
@@ -96,6 +96,36 @@ décisions figées par GW et le protocole de comparaison arrêté **avant** tout
 résultat : score cumulé, score hors bonus de capitaine, joueurs à 0 minute et
 calibration de `P(60+)` (score de Brier + tableau de fiabilité). C'est cette
 dernière métrique qui juge le système, pas l'écart de score sur quatre GW.
+
+## Comment le code est organisé
+
+Trois métiers séparés, dans ce sens et jamais l'inverse :
+
+```
+données → forecasting → contrat de projections → evaluation → optimization → rapport
+```
+
+- **`fpl_advisor/forecasting/`** — *prévoir les points*. Le seul endroit qui
+  transforme des données joueurs et équipes en points espérés (minutes, taux
+  offensifs, adversité, bonus, DEFCON, scénarios).
+- **`fpl_advisor/evaluation/`** — *vérifier les prévisions*. Rend un verdict
+  déterministe — accepté, avertissement ou bloqué — et fournit la baseline
+  publique et la mesure de stabilité. Ne choisit aucun joueur.
+- **`fpl_advisor/optimization/`** — *optimiser l'équipe*. XI, banc, brassard,
+  transferts, effectif initial. Ne lit jamais le snapshot, ne recalcule jamais
+  une prévision, ne juge jamais leur crédibilité.
+
+Entre les deux premiers passe un **contrat de projections** sérialisable : on
+peut le figer sur disque et rejouer l'optimisation sans snapshot ni recalcul.
+
+```bash
+python3 -m fpl_advisor initial-squad --demo --freeze-projections projections.json
+python3 -m fpl_advisor initial-squad --from-projections projections.json
+```
+
+Si le contrôle qualité **bloque**, l'équipe est quand même calculée pour le
+diagnostic, mais le rapport l'appelle « candidat technique » et non
+« recommandation ». Détail complet : `docs/architecture.md`.
 
 ## Où trouver team_id et league_id
 

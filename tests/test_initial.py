@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fpl_advisor import initial, model  # noqa: E402
+from fpl_advisor import initial  # noqa: E402
+from fpl_advisor.forecasting import build_projection_set  # noqa: E402
 from fpl_advisor.demo import build_parsed_initial  # noqa: E402
 from fpl_advisor.report import render_initial  # noqa: E402
 
@@ -51,19 +52,19 @@ class InitialSquadConstraintsTests(unittest.TestCase):
 class InitialSquadOptimizationTests(unittest.TestCase):
     def test_bat_l_effectif_le_moins_cher(self):
         parsed = build_parsed_initial()
-        teams_by_id, means = model.team_strengths(parsed["bootstrap"])
         gws = _rec()["horizon"]
-        pool = initial.build_pool(parsed, gws, teams_by_id, means)
+        contract = build_projection_set(parsed, gws)
+        pool = initial.build_pool(contract.rows_for("central"))
         base = initial.squad_value(initial.cheapest_squad(pool), gws)
         self.assertGreater(_rec()["value4"], base)
 
     def test_aucun_echange_ameliorant_restant(self):
         # Optimum local : aucun échange un-pour-un faisable ne fait mieux.
         parsed = build_parsed_initial()
-        teams_by_id, means = model.team_strengths(parsed["bootstrap"])
         rec = _rec()
         gws = rec["horizon"]
-        pool = initial.build_pool(parsed, gws, teams_by_id, means)
+        contract = build_projection_set(parsed, gws)
+        pool = initial.build_pool(contract.rows_for("central"))
         squad = [r for r in pool if r["id"] in {p["id"] for p in rec["squad"]}]
         self.assertEqual(len(squad), 15)
         value = initial.squad_value(squad, gws)
@@ -89,9 +90,15 @@ class InitialSquadOptimizationTests(unittest.TestCase):
 
 class InitialReportTests(unittest.TestCase):
     def test_rapport_complet(self):
-        text = render_initial(_rec())
-        for section in ("# Effectif initial GW1", "## Synthèse",
-                        "## Effectif recommandé (15 joueurs)",
+        rec = _rec()
+        text = render_initial(rec)
+        # Le titre de l'effectif suit le verdict : « recommandé » seulement si
+        # le contrôle qualité laisse publier.
+        attendu = ("## Candidat technique (15 joueurs)"
+                   if rec["verdict"].state == "bloqué"
+                   else "## Effectif recommandé (15 joueurs)")
+        for section in ("# Effectif initial GW1", "## Synthèse", attendu,
+                        "## Contrôle qualité des projections",
                         "## XI recommandé (GW1)", "## Banc (dans l'ordre)",
                         "## Capitaine et vice — règle FPL exacte",
                         "## Projections, incertitude, hypothèses critiques",
