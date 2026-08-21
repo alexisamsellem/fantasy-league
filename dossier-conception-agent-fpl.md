@@ -11,7 +11,7 @@ Quatre balises dans tout le dossier :
 - **[H]** — hypothèse de modélisation, à valider empiriquement ;
 - **[R]** — à revérifier chaque saison.
 
-Limite assumée : depuis l'environnement de rédaction, tout `premierleague.com` — pages *et* API — est bloqué par le proxy réseau (vérifié le 21/08/2026). **Aucun fait réglementaire du dossier ne porte donc l'étiquette [F].** Le tableau ci-dessous rattache chaque fait important à sa source officielle ; le **protocole J0**, première tâche de la V0, lit depuis ta machine `fantasy.premierleague.com/api/bootstrap-static/` et les pages Help/Rules, puis promeut chaque ligne de [F◦] vers [F] — ou corrige le dossier. Une ligne non promue reste provisoire.
+Limite assumée : depuis l'environnement de rédaction, tout `premierleague.com` — pages *et* API — est bloqué par le proxy réseau (vérifié le 21/08/2026). **Aucun fait réglementaire du dossier ne porte donc l'étiquette [F].** Le tableau ci-dessous rattache chaque fait important à sa source officielle ; le **protocole J0** (`scripts/j0_verification.py`, lecture seule, guide dans `docs/guide-j0.md`), première tâche de la V0, vérifie depuis ta machine les paramètres exposés par l'API officielle et fait confirmer les règles sur les pages Help/Rules — qui restent l'autorité pour tout ce que l'API n'expose pas — puis promeut chaque ligne de [F◦] vers [F], ou corrige le dossier. Une ligne non promue reste provisoire.
 
 | Fait réglementaire 2026/27 | Source officielle rattachée | Statut |
 |---|---|---|
@@ -115,13 +115,13 @@ En V0, chaque composante produit une distribution par joueur (les scénarios de 
 
 **Simulation jointe (V1).** N ≈ 10 000 tirages par GW : minutes de chaque joueur (la racine), score de chaque match (Poisson bivarié), allocation multinomiale des buts/assists aux présents, comptages DEFCON/saves/cartons, CS et malus déduits du score, bonus approché. Les corrélations structurelles sont gratuites — coéquipiers liés par le même score simulé, adversaires anticorélés. Ce niveau permet plafond p90, plancher p10, `P(équipe > x)` et surtout `P(battre le rival R)` — le critère de notre objectif principal.
 
-**La règle du brassard, simulée exactement.** Le couple (capitaine c, vice v) est évalué dans la simulation par la règle FPL elle-même : les points de c sont doublés s'il joue au moins une minute ; s'il joue 0 minute, c'est v qui est doublé (s'il joue) [F◦, lecture exacte au J0]. L'apport espéré du brassard s'écrit :
+**La règle du brassard, simulée exactement.** Le couple (capitaine c, vice v) est évalué par la règle FPL elle-même : les points de c sont doublés s'il joue au moins une minute ; s'il joue 0 minute, c'est v qui est doublé (s'il joue) [F◦, lecture exacte au J0]. Sans ambiguïté, le total simulé d'une GW s'écrit :
 
 ```
-E[brassard(c,v)] = E[X_c · 1{M_c > 0}] + E[X_v · 1{M_c = 0} · 1{M_v > 0}]
+Total(XI, c, v) = Σ_{j ∈ XI*} X_j  +  X_c·1{M_c > 0}  +  X_v·1{M_c = 0}·1{M_v > 0}
 ```
 
-Correction sur la V1 du dossier : la règle `argmax EP × P(minutes ≥ 60)` était doublement fausse — elle re-multipliait par un risque de minutes déjà contenu dans l'EP, et utilisait un seuil (60 min) qui n'est pas celui de la règle (0 minute). Le choix se fait donc par simulation directe du couple (c, v), jamais par formule composée.
+où XI* est le XI après auto-substitutions, et où les deux derniers termes sont le **bonus additionnel du brassard** — la copie supplémentaire des points du porteur, qui s'ajoute à ses points déjà comptés dans la somme du XI (capitaine ×2 = une fois dans le XI + une fois ici). À XI fixé, maximiser ce bonus équivaut à maximiser le total. Correction sur la V1 : `argmax EP × P(minutes ≥ 60)` était doublement faux — risque de minutes déjà contenu dans l'EP, et seuil (60 min) qui n'est pas celui de la règle (0 minute). Le choix se fait par simulation directe du couple (c, v), jamais par formule composée.
 
 **Incertitude.** Deux couches : l'aléa du football (irréductible, capturé par les tirages) et l'incertitude de paramètres (promu, recrue, nouvelle formule BPS), propagée en tirant aussi les paramètres [V1]. Sortie type : EP, p10/p50/p90, `P(retour ≥ 6)`, `P(blank ≤ 2)`. Les intervalles s'élargissent avec l'horizon, et cet élargissement est *le* traitement de la valeur temporelle des points futurs — pas un coefficient.
 
@@ -256,7 +256,7 @@ Correction assumée : « battre le template sur 8 GW » et « +1,5 pt d'EV par G
 
 **Le plus petit produit qui crée un avantage mesurable** : le conseiller de deadline hebdomadaire — XI + banc ordonné, couple capitaine-vice simulé, « transférer vs conserver » — avec journal et alternatives figées. « Mesurable » au sens de la section 12 : calibration des minutes d'abord (GW3–6), qualité du processus ensuite (12–16 GW, avec intervalles), aucune prétention d'edge prouvé avant une saison complète.
 
-**Ce qu'il me faut pour démarrer la V0** (rien d'autre n'est bloquant) : ton team ID FPL, l'ID de la mini-ligue cible, et la liste de ses managers ; l'exécution du protocole J0 depuis ta machine (un script fourni, cinq minutes) ; et ton créneau hebdomadaire fixe pour la revue de deadline.
+**Ce qu'il me faut pour démarrer la V0** (rien d'autre n'est bloquant) : ton team ID FPL et l'ID de la mini-ligue cible (comment les retrouver : `docs/guide-j0.md`), la liste de ses managers ; l'exécution du protocole J0 depuis ta machine (`scripts/j0_verification.py`, cinq minutes) ; et ton créneau hebdomadaire fixe pour la revue de deadline.
 
 ---
 
