@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ROOT = Path(__file__).resolve().parents[1] / "fpl_advisor"
 
-from fpl_advisor import collect, model, weekly                    # noqa: E402
+from fpl_advisor import api, collect, model, weekly                    # noqa: E402
 from fpl_advisor.advise import build_recommendation               # noqa: E402
 from fpl_advisor.demo import build_parsed                         # noqa: E402
 from fpl_advisor.evaluation import quality, stability             # noqa: E402
@@ -357,6 +357,38 @@ class CollecteHebdomadaireTests(unittest.TestCase):
             collect.get_json = vrai
         self.assertEqual(sans, [])
         self.assertEqual(avec, ["/element-summary/1/", "/element-summary/2/"])
+
+
+class ConfigurationLocaleTests(unittest.TestCase):
+    """Le gabarit livré vaut 0 pour les deux identifiants. Un 0 est un entier :
+    il passait la validation et produisait une collecte entière de 404."""
+
+    def _ecrire(self, tmp, contenu):
+        chemin = Path(tmp) / "config.local.json"
+        chemin.write_text(json.dumps(contenu), encoding="utf-8")
+        return chemin
+
+    def test_le_gabarit_non_modifie_est_refuse(self):
+        gabarit = json.loads(
+            (Path(__file__).resolve().parents[1] / "config.example.json")
+            .read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as ctx:
+                api.load_config(self._ecrire(tmp, gabarit))
+            self.assertIn("gabarit", str(ctx.exception))
+
+    def test_identifiants_reels_acceptes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = api.load_config(
+                self._ecrire(tmp, {"team_id": 1234567, "league_id": 98765}))
+            self.assertEqual(cfg["team_id"], 1234567)
+
+    def test_champ_manquant_ou_non_entier_refuse(self):
+        for mauvais in ({"team_id": 1}, {"team_id": "1234567", "league_id": 9},
+                        {"team_id": True, "league_id": 9}):
+            with self.subTest(cfg=mauvais), tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaises(SystemExit):
+                    api.load_config(self._ecrire(tmp, mauvais))
 
 
 class RapportHebdomadaireTests(unittest.TestCase):

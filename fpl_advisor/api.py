@@ -73,6 +73,14 @@ def load_config(path="config.local.json"):
             "Ce fichier est ignoré par Git et ne doit jamais être commité.")
     cfg = json.loads(p.read_text(encoding="utf-8"))
     for k in ("team_id", "league_id"):
-        if not isinstance(cfg.get(k), int):
-            raise SystemExit(f"config.local.json : champ '{k}' manquant ou non entier.")
+        v = cfg.get(k)
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise SystemExit(f"{path} : champ '{k}' manquant ou non entier.")
+        # Le gabarit livré vaut 0 : il passe le test « est un entier » et
+        # produirait une collecte entière de 404 silencieux. On refuse.
+        if v <= 0:
+            raise SystemExit(
+                f"{path} : champ '{k}' encore à {v} — c'est la valeur du "
+                "gabarit, pas la tienne. Ouvrir le fichier et y mettre les "
+                "vrais identifiants (docs/guide-j0.md, sections 2 et 3).")
     return cfg

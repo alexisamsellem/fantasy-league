@@ -9,12 +9,19 @@ Le cadrage complet est dans `dossier-conception-agent-fpl.md`.
 
 ```bash
 # 0. Une seule fois : configuration locale (jamais commitée)
-cp config.example.json config.local.json   # y mettre team_id et league_id
-pip install duckdb                          # seule dépendance optionnelle
+cp config.example.json config.local.json
+$EDITOR config.local.json    # REMPLACER les deux 0 par tes vrais identifiants
+pip install duckdb           # seule dépendance optionnelle
 
 # 1. Avant chaque deadline (idéalement après les conférences de presse) :
 python3 -m unittest discover -s tests && python3 -m fpl_advisor run
 ```
+
+Le `cp` copie un gabarit rempli de zéros : il faut l'**éditer**. Laissé tel
+quel, il est refusé avec un message explicite plutôt que de lancer une collecte
+de 404. Où trouver `team_id` et `league_id` : `docs/guide-j0.md`, sections 2
+et 3 — les deux se lisent dans les URLs de `fantasy.premierleague.com`.
+Prérequis : Python 3.9+, aucune dépendance obligatoire.
 
 `run` collecte les données publiques FPL (snapshot immuable horodaté sous
 `data/snapshots/`), met à jour `data/fpl.duckdb`, puis écrit la recommandation
