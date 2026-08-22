@@ -5,7 +5,7 @@ ici plutôt que corrigés au passage : une correction silencieuse dans un commit
 de refactoring rendrait impossible de distinguer un déplacement de code d'un
 changement de comportement.
 
-## A1 — Capitaine implausible dans la démo de pré-saison
+## A1 — Capitaine implausible dans la démo de pré-saison — CORRIGÉ
 
 **Constaté le** 21/08/2026, pendant la séparation en trois couches.
 **Présent depuis** le commit `4f9fa89` (introduit avec `build_parsed_initial`).
@@ -30,11 +30,17 @@ Le contrôle qualité introduit dans le même chantier détecte l'anomalie et
 bloque la publication (`capitaine_plausible`). Le comportement est donc
 correct — c'est la fixture qui est fausse.
 
-**Correction attendue** : construire l'historique de saison passée à partir du
-rôle du joueur, pas de compteurs déjà remis à zéro, ou appeler
-`synthetic_history_past()` avant la remise à zéro. Un test de régression devra
-vérifier qu'un titulaire de la démo obtient une probabilité de titularisation
-cohérente avec son historique.
+**Corrigé le** 22/08/2026, dans un commit isolé de tout refactoring.
+`build_parsed_initial()` construit désormais l'historique de saison passée
+**avant** la remise à zéro des compteurs. Effet mesuré sur la démo : capitaine
+`Alpha-MIL1` à `P(60+) = 68 %` au lieu de 14 %, et le verdict de la démo passe
+de `bloqué` (`capitaine_plausible`) à `avertissement` (`couverture_donnees`,
+inchangé : la démo reste synthétique).
+
+Deux tests de régression dans `tests/test_initial.py`
+(`FixtureSynthetiqueTests`) : au moins un tiers des joueurs synthétiques garde
+un historique de titulaire, et le capitaine de la démo reste au-dessus du seuil
+`CAPTAIN_P60_WARN`.
 
 **Ce que ça ne change pas** : aucun chiffre du chemin de production, aucune
 donnée réelle. La démo reste utilisable pour ce à quoi elle sert — exercer les

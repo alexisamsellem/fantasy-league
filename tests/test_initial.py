@@ -108,6 +108,31 @@ class InitialReportTests(unittest.TestCase):
         self.assertIn("prior", text)   # pré-saison : bases de projection affichées
 
 
+class FixtureSynthetiqueTests(unittest.TestCase):
+    """Régression de l'anomalie A1 (docs/anomalies-constatees.md).
+
+    La fixture de pré-saison remet à zéro les compteurs de la saison en cours.
+    Si l'historique de la saison passée est construit APRÈS cette remise à zéro,
+    tout le monde hérite d'un passé de remplaçant et le capitaine de la démo
+    tombe à P(60+) = 14 % — un défaut de la fixture, pas du moteur."""
+
+    def test_les_titulaires_gardent_un_historique_de_titulaire(self):
+        parsed = build_parsed_initial()
+        starts = [v[0]["starts"] for v in parsed["history_past"].values() if v]
+        self.assertTrue(starts)
+        titulaires = [s for s in starts if s >= 20]
+        self.assertGreaterEqual(
+            len(titulaires), len(starts) // 3,
+            "aucun titulaire dans l'historique synthétique : la remise à zéro "
+            "des compteurs a de nouveau précédé synthetic_history_past()")
+
+    def test_le_capitaine_de_la_demo_est_plausible(self):
+        from fpl_advisor.evaluation import quality
+        p60 = _rec()["armband"]["captain"]["p60"]
+        self.assertGreater(p60, quality.CAPTAIN_P60_WARN,
+                           f"capitaine à P(60+) = {p60:.0%} : anomalie A1 revenue")
+
+
 class InitialCliTests(unittest.TestCase):
     def test_commande_demo_sans_config(self):
         # Bout-en-bout CLI : aucune config requise, rapport écrit sur disque.

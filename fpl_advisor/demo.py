@@ -186,6 +186,11 @@ def build_parsed_initial(now=None):
     parsed = build_parsed(now)
     for i, e in enumerate(parsed["events"]):
         e["deadline_time"] = _iso(now + timedelta(days=2 + 7 * i))
+    # Anomalie A1 : `synthetic_history_past` déduit le statut de titulaire de la
+    # saison passée depuis `starts`/`minutes` de la saison EN COURS. Il faut donc
+    # la construire AVANT la remise à zéro, sinon tout le monde hérite d'un passé
+    # de remplaçant et le capitaine de la démo tombe à P(60+) = 14 %.
+    hist = synthetic_history_past(parsed["bootstrap"]["elements"])
     for e in parsed["bootstrap"]["elements"]:
         e["minutes"] = 0
         e["starts"] = 0
@@ -194,7 +199,7 @@ def build_parsed_initial(now=None):
         # Avant la GW1, les taux par 90 de la saison en cours n'existent pas.
         e["expected_goals_per_90"] = 0.0
         e["expected_assists_per_90"] = 0.0
-    parsed["history_past"] = synthetic_history_past(parsed["bootstrap"]["elements"])
+    parsed["history_past"] = hist
     attach_public_estimates(parsed["bootstrap"]["elements"], parsed["history_past"])
     parsed.update({
         "run_dir": "(démo synthétique pré-saison — aucune donnée réelle)",
