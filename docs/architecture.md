@@ -113,8 +113,8 @@ Contrôles du mode effectif initial :
 | `capitaine_plausible` | capitaine sous 30 % de chances de jouer 60 minutes |
 | `baseline_publique` | (avertissement seulement) recouvrement ≤ 2/15 |
 
-Contrôles du mode hebdomadaire (`couverture_donnees` et `fallbacks_faibles`
-sont communs) :
+Contrôles du mode hebdomadaire (`fallbacks_faibles` est commun ;
+`couverture_donnees` est relu : voir la note sous la table) :
 
 | Contrôle | Bloque quand |
 |---|---|
@@ -131,6 +131,14 @@ Les deux premiers n'existent qu'à la semaine, et c'est volontaire : avant la
 GW1 une collecte de la veille est sans conséquence, alors qu'en cours de saison
 elle ignore les blessures, les conférences de presse et les changements de
 prix. Une recommandation publiée après la deadline n'est plus une décision.
+
+`couverture_donnees` est le même contrôle dans les deux modes, à une nuance
+près. Avant la GW1, l'absence des saisons passées rend le classement entre
+joueurs d'un même poste arbitraire : elle bloque. En cours de saison, passé
+trois journées jouées, minutes et taux viennent de la saison en cours ; elle
+devient un avertissement. Sans cette nuance, `run` — qui ne collecte pas les
+~700 `element-summary` — serait bloqué toutes les semaines pour un critère qui
+ne s'applique qu'à la pré-saison.
 
 Ces seuils sont des **règles de publication**, pas des paramètres de modèle :
 les changer ne modifie aucune projection.

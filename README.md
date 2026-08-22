@@ -31,6 +31,11 @@ les décisions restent calculées pour le diagnostic mais le rapport les appelle
 **décision technique**, jamais recommandation. La liste complète des contrôles
 est dans `docs/architecture.md`.
 
+Avant la 3ᵉ journée jouée, ajouter `--with-history` une fois : sans les saisons
+passées, rien ne distingue deux joueurs d'un même poste et le contrôle
+`couverture_donnees` bloque. Compter ~700 GET publics de plus (plusieurs
+minutes). Détail : `docs/contrat-de-donnees.md`.
+
 Un flag de blessure tombe après la collecte ? Relancer la même commande :
 chaque exécution repart des données fraîches sans écraser les snapshots
 précédents. C'est aussi ce que mesure le contrôle `fraicheur_snapshot` : la

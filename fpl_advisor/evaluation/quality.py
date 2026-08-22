@@ -50,6 +50,8 @@ SNAPSHOT_AGE_BLOCK_H = 72
 SCENARIO_AGREE_BLOCK = 2         # < 2 scénarios sur 3 d'accord → bloqué
 XI_OVERLAP_WARN = 10             # sur 11 titulaires
 SQUAD_SIZE = 15
+LIVE_GWS_REPLACING_HISTORY = 3   # journées jouées à partir desquelles la saison
+                                 # en cours porte seule la hiérarchie
 
 
 @dataclass
@@ -279,6 +281,36 @@ def _deadline(contract, now):
                  f"{left:.0f} h avant la deadline GW{contract.gw} ({contract.deadline})")
 
 
+def _data_coverage_weekly(contract):
+    """Même lecture que `_data_coverage`, avec une nuance qui compte.
+
+    Avant la GW1, `history_past` porte TOUTE la hiérarchie entre deux joueurs
+    d'un même poste : sans elle, les priors sont plats et le classement est
+    arbitraire — blocage justifié. En cours de saison, les minutes et les taux
+    viennent de la saison en cours ; passé quelques journées, l'absence des
+    saisons passées dégrade la précision sans rendre le classement arbitraire.
+    Elle devient alors un avertissement.
+
+    Sans cette nuance, `run` — qui ne collecte pas les ~700 element-summary,
+    trop lents pour un rituel de deadline — serait bloqué toutes les semaines
+    pour une raison qui ne s'applique qu'à la pré-saison.
+    """
+    base = _data_coverage(contract)
+    by_key = {r["key"]: r for r in contract.availability}
+    obligatoire_absent = any(r["required"] and not r["present"]
+                             for r in contract.availability)
+    manque_passe = not by_key.get("history_past", {}).get("present", False)
+    assez_observe = contract.n_history_gws >= LIVE_GWS_REPLACING_HISTORY
+    if (base.state == BLOCKED and manque_passe and assez_observe
+            and not obligatoire_absent):
+        return Check("couverture_donnees", WARNING,
+                     base.detail + f" ; {contract.n_history_gws} GW de la saison "
+                     "en cours observées (seuil "
+                     f"{LIVE_GWS_REPLACING_HISTORY}) : minutes et taux ne "
+                     "dépendent plus des saisons passées — dégradant, pas bloquant")
+    return base
+
+
 def _squad_readable(facts):
     """Les 15 joueurs détenus sont-ils tous projetables ?"""
     size = facts.get("squad_size")
@@ -329,7 +361,7 @@ def assess_weekly(contract, facts=None, now=None):
     testable — le module ne lit jamais l'horloge tout seul."""
     facts = facts or {}
     now = now or datetime.now(timezone.utc)
-    checks = [_data_coverage(contract), _weak_fallbacks(contract),
+    checks = [_data_coverage_weekly(contract), _weak_fallbacks(contract),
               _freshness(contract, now), _deadline(contract, now)]
     n = facts.get("n_scenarios")
     for maybe in (_squad_readable(facts), _captain(facts),

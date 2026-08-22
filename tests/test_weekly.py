@@ -269,6 +269,74 @@ class FraicheurDuSnapshotTests(unittest.TestCase):
             self.assertIsNone(collect.snapshot_as_of(Path(tmp) / "n-importe-quoi"))
 
 
+class CouvertureEnCoursDeSaisonTests(unittest.TestCase):
+    """`history_past` ne veut pas dire la même chose avant la GW1 et après.
+
+    Sans cette nuance, `run` — qui ne collecte pas les ~700 element-summary —
+    serait bloqué toutes les semaines pour un critère de pré-saison."""
+
+    def _sans_saisons_passees(self, n_gws):
+        contract = weekly.build_contract(dict(build_parsed(), history_past={}))
+        contract.n_history_gws = n_gws
+        return contract
+
+    def _couverture(self, contract):
+        v = quality.assess_weekly(contract, {})
+        return next(c.state for c in v.checks if c.key == "couverture_donnees")
+
+    def test_debut_de_saison_sans_saisons_passees_bloque(self):
+        c = self._sans_saisons_passees(quality.LIVE_GWS_REPLACING_HISTORY - 1)
+        self.assertEqual(self._couverture(c), quality.BLOCKED)
+
+    def test_assez_de_journees_jouees_degrade_sans_bloquer(self):
+        c = self._sans_saisons_passees(quality.LIVE_GWS_REPLACING_HISTORY)
+        self.assertEqual(self._couverture(c), quality.WARNING)
+
+    def test_avant_la_gw1_le_blocage_reste_entier(self):
+        """Le mode effectif initial garde le critère strict : rien n'a bougé
+        pour lui."""
+        c = self._sans_saisons_passees(10)
+        etat = next(k.state for k in quality.assess(c).checks
+                    if k.key == "couverture_donnees")
+        self.assertEqual(etat, quality.BLOCKED)
+
+    def test_une_source_obligatoire_absente_reste_bloquante(self):
+        c = self._sans_saisons_passees(10)
+        c.availability = [dict(r, present=False) if r["key"] == "bootstrap_core"
+                          else r for r in c.availability]
+        c.data_confidence = "bloqué"
+        self.assertEqual(self._couverture(c), quality.BLOCKED)
+
+
+class CollecteHebdomadaireTests(unittest.TestCase):
+    def test_with_history_atteint_les_saisons_passees(self):
+        """`run --with-history` doit appeler element-summary, sinon il n'existe
+        aucun moyen de sortir de la confiance « faible » en début de saison."""
+        appels = []
+        elements = [{"id": 1}, {"id": 2}]
+
+        def faux_get(path, store=None, name=None):
+            appels.append(path)
+            if path == "/bootstrap-static/":
+                return {"elements": elements, "events": [], "teams": []}, None
+            return {}, None
+
+        vrai = collect.get_json
+        collect.get_json = faux_get
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = {"team_id": 1, "league_id": 2}
+                collect.collect_all(cfg, tmp)
+                sans = [a for a in appels if "element-summary" in a]
+                appels.clear()
+                collect.collect_all(cfg, tmp, with_history=True)
+                avec = [a for a in appels if "element-summary" in a]
+        finally:
+            collect.get_json = vrai
+        self.assertEqual(sans, [])
+        self.assertEqual(avec, ["/element-summary/1/", "/element-summary/2/"])
+
+
 class RapportHebdomadaireTests(unittest.TestCase):
     def test_sections_completes(self):
         texte = render(_rec())

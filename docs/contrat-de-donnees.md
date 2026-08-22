@@ -5,7 +5,7 @@ prendre, et **ce qui se dégrade** quand elles manquent. Il existe parce que la
 qualité d'un top 15 de pré-saison ne dépend pas de l'optimiseur mais des
 données qui l'alimentent.
 
-État au 21/08/2026 : depuis l'environnement de développement,
+État au 22/08/2026 : depuis l'environnement de développement,
 `fantasy.premierleague.com`, `football-data.co.uk` et `fbref.com` répondent
 tous `403` au tunnel du proxy sortant. **Aucune donnée réelle n'a pu être
 collectée.** Rien n'a été fabriqué pour compenser : les sources absentes sont
@@ -29,6 +29,40 @@ arbitraire en hiérarchie défendable avant la première journée.
 
 ## 2. Ce qu'il faut exécuter depuis une machine qui atteint l'API
 
+### 2.1 Mode hebdomadaire — l'effectif existe déjà
+
+C'est le cas courant en cours de saison. Une seule commande, à lancer **avant
+la deadline** et idéalement après les conférences de presse :
+
+```bash
+cp config.example.json config.local.json   # une fois : team_id et league_id
+python3 -m unittest discover -s tests      # 109 tests, hors ligne, ~15 s
+python3 -m fpl_advisor run                 # collecte + décision de la semaine
+```
+
+`run` collecte le bootstrap, le calendrier, l'historique live des GW closes,
+l'effectif détenu (`entry/<team_id>/event/<gw>/picks/`), le classement de la
+mini-ligue et les picks publics des rivaux, puis écrit
+`data/reports/GW<n>-recommandation-<horodatage>.md`.
+
+Deux contrôles peuvent bloquer la publication pour une raison qui n'a rien à
+voir avec le modèle, et il faut les lire en premier :
+
+- `deadline_actionnable` — la deadline de la GW visée est passée. Le rapport
+  n'est plus une décision ; relancer après le changement de GW.
+- `fraicheur_snapshot` — la collecte a plus de 24 h (avertissement) ou 72 h
+  (blocage). La date vient du manifeste du snapshot, pas de l'heure du
+  rapport : relancer `run` plutôt que `advise`.
+
+`advise` seul rejoue la décision sur le dernier snapshot sans recollecter :
+utile pour comparer deux lectures, jamais pour décider sur des données vieilles.
+
+**L'effectif détenu n'est lisible qu'après la première deadline passée** — les
+picks ne sont publics qu'à partir de ce moment. Avant, la commande s'arrête sur
+un `BLOCAGE FACTUEL` explicite plutôt que de deviner.
+
+### 2.2 Mode effectif initial — avant la GW1
+
 ```bash
 # Collecte complète, saisons passées comprises (~700 GET publics, comptez
 # plusieurs minutes ; aucun cookie, aucune authentification, lecture seule)
@@ -46,6 +80,30 @@ réellement obtenu.
 Si `--with-history` échoue partiellement (quelques joueurs en erreur), le
 moteur utilise ce qui existe et rétrécit vers le prior de poste pour le reste :
 la confiance affichée baisse en conséquence, aucune valeur n'est inventée.
+
+### 2.3 Les saisons passées en cours de saison
+
+`run` ne collecte pas les saisons passées par défaut : ce sont ~700 appels,
+trop lents pour un rituel de deadline. Les snapshots étant immuables et
+indépendants, un run n'hérite jamais des `element-summary` du précédent.
+
+Ce que ça coûte dépend du nombre de journées déjà jouées, et le contrôle
+`couverture_donnees` en tient compte :
+
+| Journées jouées | `history_past` absent |
+|---|---|
+| moins de 3 | **bloque** — la saison en cours ne suffit pas à distinguer deux joueurs d'un même poste, les priors sont plats |
+| 3 ou plus | **avertit** — minutes et taux viennent de la saison en cours ; l'absence dégrade la précision sans rendre le classement arbitraire |
+
+En début de saison, il faut donc les collecter au moins une fois **dans un
+snapshot hebdomadaire** :
+
+```bash
+python3 -m fpl_advisor run --with-history   # long : ~700 GET publics en plus
+```
+
+À partir de la 3ᵉ journée jouée, `run` seul suffit ; le rapport continue de
+signaler l'absence en avertissement, jamais en silence.
 
 ## 3. Référence d'équipe (facultative, gratuite)
 

@@ -70,9 +70,10 @@ def main(argv=None):
                          "initial-squad : le mode hebdomadaire a aussi besoin "
                          "de l'effectif détenu, qui reste hors du contrat")
     ap.add_argument("--with-history", action="store_true",
-                    help="initial-squad : collecte aussi les saisons passées "
-                         "(un GET public par joueur, long mais c'est la source "
-                         "qui rend un top 15 de pré-saison défendable)")
+                    help="collect/run/initial-squad : collecte aussi les saisons "
+                         "passées (un GET public par joueur, long). Nécessaire "
+                         "tant que la saison en cours n'a pas assez de journées "
+                         "jouées pour porter seule la hiérarchie entre joueurs")
     args = ap.parse_args(argv)
 
     if args.command == "demo":
@@ -114,7 +115,7 @@ def main(argv=None):
 
     cfg = load_config(args.config)
     if args.command in ("collect", "run"):
-        run_dir = collect_all(cfg, args.data_dir)
+        run_dir = collect_all(cfg, args.data_dir, args.with_history)
         print(f"Snapshot : {run_dir}")
         parsed = load_snapshot(run_dir, cfg)
         print(load_duckdb(parsed, f"{args.data_dir}/fpl.duckdb"))

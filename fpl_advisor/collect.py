@@ -85,12 +85,22 @@ def collect_public(data_dir="data", with_history=False, history_limit=None):
     return store.dir
 
 
-def collect_all(cfg, data_dir="data"):
+def collect_all(cfg, data_dir="data", with_history=False):
     """Collecte bootstrap, fixtures, historique live, mon équipe, la ligue et
     les picks des rivaux (post-deadline uniquement). Retourne le répertoire du
-    snapshot ou lève SystemExit avec un diagnostic précis."""
+    snapshot ou lève SystemExit avec un diagnostic précis.
+
+    `with_history` ajoute les saisons passées (un GET public par joueur). Les
+    snapshots étant immuables et indépendants, ces fichiers appartiennent à CE
+    snapshot : un run hebdomadaire sans l'option n'hérite pas de ceux du
+    précédent. C'est le seul moyen de sortir de la confiance « faible » en
+    début de saison, quand la saison en cours n'a pas encore assez de journées
+    jouées pour porter la hiérarchie toute seule."""
     store = SnapshotStore(data_dir)
     boot, closed = _collect_common(store)
+    if with_history:
+        ok, fail = collect_element_history(store, boot.get("elements", []))
+        print(f"Saisons passées collectées : {ok} joueurs ({fail} échecs)")
 
     tid, lid = cfg["team_id"], cfg["league_id"]
     get_json(f"/entry/{tid}/", store, f"entry-{tid}")
