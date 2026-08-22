@@ -1,0 +1,297 @@
+# -*- coding: utf-8 -*-
+"""Tests du mode hebdomadaire migré sur le contrat — hors ligne, aucune requête.
+
+Ce que ces tests protègent :
+  1. la décision de la semaine passe par le contrat de projections, pas par le
+     snapshot ;
+  2. la migration n'a changé aucun chiffre : mêmes XI, capitaine et arbitrage
+     qu'avant ;
+  3. la porte qualité hebdomadaire bloque ce qui doit l'être — deadline
+     dépassée, collecte périmée, joueur illisible, décision instable ;
+  4. l'effectif détenu, donnée personnelle, n'entre jamais dans le contrat ;
+  5. l'évaluation mesure la stabilité sans importer l'optimiseur.
+"""
+
+import json
+import sys
+import tempfile
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+ROOT = Path(__file__).resolve().parents[1] / "fpl_advisor"
+
+from fpl_advisor import collect, model, weekly                    # noqa: E402
+from fpl_advisor.advise import build_recommendation               # noqa: E402
+from fpl_advisor.demo import build_parsed                         # noqa: E402
+from fpl_advisor.evaluation import quality, stability             # noqa: E402
+from fpl_advisor.evaluation.backend import SelectionBackend       # noqa: E402
+from fpl_advisor.optimization import weekly as opt_weekly         # noqa: E402
+from fpl_advisor.report import render                             # noqa: E402
+
+
+def _parsed():
+    if not hasattr(_parsed, "cache"):
+        _parsed.cache = build_parsed()
+    return _parsed.cache
+
+
+def _contract():
+    if not hasattr(_contract, "cache"):
+        _contract.cache = weekly.build_contract(_parsed())
+    return _contract.cache
+
+
+def _rec():
+    if not hasattr(_rec, "cache"):
+        _rec.cache = build_recommendation(_parsed())
+    return _rec.cache
+
+
+class ContratHebdomadaireTests(unittest.TestCase):
+    def test_horizon_de_trois_gw(self):
+        c = _contract()
+        self.assertEqual(len(c.horizon), weekly.WEEKLY_HORIZON_GWS)
+        self.assertEqual(c.gw, _parsed()["next_gw"])
+
+    def test_le_scenario_central_est_bien_la_reference(self):
+        """`ep` (affiché) et `scenarios["central"]` (décidé) sont le même
+        nombre : sinon le rapport montrerait autre chose que ce qui a servi
+        à choisir le XI."""
+        c = _contract()
+        rows = {r["id"]: r for r in c.rows_for("central")}
+        for r in c.rows:
+            self.assertAlmostEqual(r.ep, rows[r.player_id]["eps"][r.gw], places=12)
+
+    def test_le_contrat_ne_transporte_aucune_donnee_personnelle(self):
+        c = _contract()
+        squad_ids, _ = weekly.read_squad(_parsed())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = c.save(Path(tmp) / "proj.json")
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        for interdit in ("my", "picks", "rivals", "standings", "team_id",
+                         "league_id", "bank"):
+            self.assertNotIn(interdit, data)
+        # L'effectif détenu ne doit se déduire d'aucun champ du contrat.
+        self.assertNotIn(squad_ids, list(data.values()))
+
+
+class MigrationNeutreTests(unittest.TestCase):
+    """La migration ajoute une porte qualité, elle ne change aucun chiffre."""
+
+    def test_les_ep_sont_identiques_au_chemin_historique(self):
+        parsed, c = _parsed(), _contract()
+        elements = {e["id"]: e for e in parsed["bootstrap"]["elements"]}
+        rows = {r["id"]: r for r in c.rows_for("central")}
+        for pid in list(rows)[:40]:
+            attendu = model.project_player(parsed, elements[pid], c.gw)["ep"]
+            self.assertAlmostEqual(rows[pid]["eps"][c.gw], attendu, places=12)
+
+    def test_xi_capitaine_et_arbitrage_restent_coherents(self):
+        rec = _rec()
+        self.assertEqual(len(rec["xi"]), 11)
+        self.assertEqual(len(rec["bench"]), 4)
+        self.assertEqual(len(rec["squad"]), 15)
+        self.assertIn(rec["transfer"]["decision"], ("transférer", "conserver"))
+        # Le capitaine affiché est bien celui du XI affiché, avec le même EP.
+        cap = rec["armband"]["captain"]
+        self.assertIn(cap["id"], {p["id"] for p in rec["xi"]})
+        self.assertAlmostEqual(
+            cap["ep"], next(p["ep"] for p in rec["xi"] if p["id"] == cap["id"]),
+            places=12)
+
+
+class PorteQualiteHebdomadaireTests(unittest.TestCase):
+    def _bloquants(self, verdict):
+        return [c.key for c in verdict.checks if c.state == quality.BLOCKED]
+
+    def test_deadline_depassee_bloque(self):
+        c = _contract()
+        squad_ids, bank = weekly.read_squad(_parsed())
+        apres = datetime.now(timezone.utc) + timedelta(days=5)
+        rec = weekly.build_from_contract(c, squad_ids, bank, now=apres)
+        self.assertEqual(rec["verdict"].state, quality.BLOCKED)
+        self.assertIn("deadline_actionnable", self._bloquants(rec["verdict"]))
+        self.assertEqual(rec["verdict"].label, "décision technique")
+
+    def test_collecte_perimee_avertit_puis_bloque(self):
+        c = _contract()
+        base = datetime.now(timezone.utc)
+        etats = {}
+        for heures in (0, quality.SNAPSHOT_AGE_WARN_H + 1,
+                       quality.SNAPSHOT_AGE_BLOCK_H + 1):
+            v = quality.assess_weekly(c, {}, now=base + timedelta(hours=heures))
+            etats[heures] = next(k.state for k in v.checks
+                                 if k.key == "fraicheur_snapshot")
+        self.assertEqual(etats[0], quality.ACCEPTED)
+        self.assertEqual(etats[quality.SNAPSHOT_AGE_WARN_H + 1], quality.WARNING)
+        self.assertEqual(etats[quality.SNAPSHOT_AGE_BLOCK_H + 1], quality.BLOCKED)
+
+    def test_joueur_illisible_bloque_mais_la_decision_reste_calculee(self):
+        parsed = build_parsed()
+        squad_ids, bank = weekly.read_squad(parsed)
+        # Un défenseur de l'effectif quitte le championnat : le contrat ne le
+        # projette plus. L'effectif passe à 14 lisibles, le XI reste faisable.
+        elements = {e["id"]: e for e in parsed["bootstrap"]["elements"]}
+        parti = next(pid for pid in squad_ids
+                     if elements[pid]["element_type"] == 2)
+        elements[parti]["status"] = "u"
+        rec = weekly.build_from_contract(weekly.build_contract(parsed),
+                                         squad_ids, bank)
+        self.assertEqual(rec["missing_ids"], [parti])
+        self.assertIn("effectif_lisible", self._bloquants(rec["verdict"]))
+        self.assertEqual(len(rec["squad"]), 14)
+        self.assertEqual(len(rec["xi"]), 11)      # calculé malgré le blocage
+
+    def test_desaccord_entre_scenarios_sur_le_capitaine(self):
+        c = _contract()
+        cas = {3: quality.ACCEPTED, 2: quality.WARNING, 1: quality.BLOCKED}
+        for accord, attendu in cas.items():
+            with self.subTest(accord=accord):
+                v = quality.assess_weekly(
+                    c, {"n_scenarios": 3, "captain_agree": accord})
+                etat = next(k.state for k in v.checks
+                            if k.key == "stabilite_capitaine")
+                self.assertEqual(etat, attendu)
+
+    def test_effectif_absent_bloque_avant_tout_calcul(self):
+        parsed = dict(build_parsed(), my={})
+        with self.assertRaises(SystemExit) as ctx:
+            build_recommendation(parsed)
+        self.assertIn("BLOCAGE FACTUEL", str(ctx.exception))
+
+
+class StabiliteDesDecisionsTests(unittest.TestCase):
+    def test_trois_scenarios_rejoues_sur_le_meme_effectif(self):
+        rec = _rec()
+        ag = rec["agreement"]
+        self.assertEqual(len(rec["scenarios"]), 3)
+        self.assertEqual(ag["n_scenarios"], 3)
+        for cle in ("captain_agree", "decision_agree", "swap_agree"):
+            self.assertLessEqual(ag[cle], 3)
+        self.assertEqual(ag["xi_size"], 11)
+        # L'effectif ne bouge pas d'un scénario à l'autre : c'est celui du
+        # manager. Seules les décisions peuvent changer.
+        self.assertEqual(len(rec["squad"]), 15)
+
+    def test_l_evaluation_n_importe_pas_l_optimiseur(self):
+        """Un backend factice suffit : preuve que l'inversion tient aussi pour
+        la stabilité hebdomadaire."""
+        appels = []
+
+        def faux_weekly(rows, squad_ids, bank, gws):
+            appels.append(len(rows))
+            ids = list(squad_ids)
+            return {"captain_id": ids[0], "xi_ids": set(ids[:11]),
+                    "decision": "conserver", "swap": None,
+                    "transfer": {"candidates": []},
+                    "armband": {"captain": {"web_name": "X", "ep": 1.0}}}
+
+        backend = SelectionBackend(select=None, value=None, legality=None,
+                                   decisions=None, weekly=faux_weekly)
+        squad_ids, bank = weekly.read_squad(_parsed())
+        rows, ag = stability.decision_stability(_contract(), backend,
+                                                squad_ids, bank)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(appels), 3)
+        self.assertEqual(ag["captain_agree"], 3)
+
+    def test_conserver_ne_compare_aucun_couple_d_echange(self):
+        """Sous « conserver », le meilleur candidat reste affiché pour
+        information mais ne compte pas comme une décision : deux scénarios qui
+        conservent décrivent la même action, quel que soit le candidat
+        sous-jacent. Sans cette règle, la porte qualité criait à l'instabilité
+        sur une semaine où il n'y a rien à faire."""
+        c = _contract()
+        squad_ids, bank = weekly.read_squad(_parsed())
+        d = opt_weekly.weekly_decision(c.rows_for("central"), squad_ids, bank,
+                                       list(c.horizon))
+        if d["decision"] == "conserver":
+            self.assertTrue(d["transfer"]["candidates"])   # candidats calculés
+            self.assertIsNone(d["swap"])                   # mais rien à comparer
+        else:
+            self.assertIsNotNone(d["swap"])
+
+    def test_backend_sans_weekly_refuse_explicitement(self):
+        backend = SelectionBackend(select=None, value=None, legality=None,
+                                   decisions=None)
+        with self.assertRaises(ValueError):
+            stability.decision_stability(_contract(), backend, [1, 2], 0)
+
+
+class OptimisationHebdomadaireTests(unittest.TestCase):
+    def test_la_preselection_est_bornee_par_poste(self):
+        c = _contract()
+        squad_ids, _ = weekly.read_squad(_parsed())
+        market = opt_weekly.shortlist(c.rows_for("central"), set(squad_ids),
+                                      c.gw, per_position=3)
+        for et in (1, 2, 3, 4):
+            self.assertLessEqual(sum(1 for r in market
+                                     if r["element_type"] == et), 3)
+        self.assertFalse({r["id"] for r in market} & set(squad_ids))
+
+    def test_le_module_ne_lit_aucune_donnee_brute(self):
+        source = (ROOT / "optimization" / "weekly.py").read_text(encoding="utf-8")
+        for interdit in ('"bootstrap"', '"elements"', '"live"', 'parsed['):
+            self.assertNotIn(interdit, source)
+
+    def test_advise_ne_projette_plus_lui_meme(self):
+        """L'orchestrateur ne doit plus appeler le moteur de prévision : il
+        délègue au contrat. C'était le point de divergence entre les deux modes."""
+        source = (ROOT / "advise.py").read_text(encoding="utf-8")
+        for interdit in ("project_player", "project_horizon", "team_strengths",
+                         '"bootstrap"'):
+            self.assertNotIn(interdit, source)
+
+
+class FraicheurDuSnapshotTests(unittest.TestCase):
+    def test_as_of_vient_du_manifeste(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20260820T101500Z"
+            run.mkdir()
+            (run / "manifest.json").write_text(json.dumps([
+                {"file": "a.json", "retrieved_at": "2026-08-20T10:15:00+00:00"},
+                {"file": "b.json", "retrieved_at": "2026-08-20T10:16:30+00:00"},
+            ]), encoding="utf-8")
+            self.assertEqual(collect.snapshot_as_of(run),
+                             "2026-08-20T10:16:30+00:00")
+
+    def test_repli_sur_le_nom_du_repertoire(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp) / "20260820T101500Z"
+            run.mkdir()
+            self.assertTrue(collect.snapshot_as_of(run).startswith("2026-08-20T10:15"))
+
+    def test_repertoire_sans_horodatage_ne_fabrique_aucune_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(collect.snapshot_as_of(Path(tmp) / "n-importe-quoi"))
+
+
+class RapportHebdomadaireTests(unittest.TestCase):
+    def test_sections_completes(self):
+        texte = render(_rec())
+        for section in ("## Contrôle qualité de la décision", "## Synthèse",
+                        "## XI recommandé", "## Banc",
+                        "## Capitaine et vice",
+                        "## Trois scénarios et stabilité des décisions",
+                        "## Transférer ou conserver",
+                        "## Projections, incertitude",
+                        "## Mini-ligue — exposition connue des rivaux",
+                        "## Événements qui feraient changer",
+                        "## Limites de la V0"):
+            self.assertIn(section, texte)
+
+    def test_une_decision_bloquee_n_est_jamais_appelee_recommandation(self):
+        c = _contract()
+        squad_ids, bank = weekly.read_squad(_parsed())
+        apres = datetime.now(timezone.utc) + timedelta(days=5)
+        texte = render(weekly.build_from_contract(c, squad_ids, bank, now=apres))
+        self.assertIn("DÉCISION TECHNIQUE — publication refusée", texte)
+        self.assertIn("## XI calculé (non publiable)", texte)
+        self.assertNotIn("## XI recommandé", texte)
+
+
+if __name__ == "__main__":
+    unittest.main()

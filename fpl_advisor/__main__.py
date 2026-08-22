@@ -2,7 +2,7 @@
 """CLI du conseiller FPL V0.
 
   python3 -m fpl_advisor collect        # collecte + snapshot immuable + DuckDB
-  python3 -m fpl_advisor advise         # recommandation depuis le dernier snapshot
+  python3 -m fpl_advisor advise         # décision de la semaine depuis le dernier snapshot
   python3 -m fpl_advisor run            # collect puis advise (rituel de deadline)
   python3 -m fpl_advisor demo           # bout-en-bout sur données synthétiques
   python3 -m fpl_advisor initial-squad  # effectif initial 15 joueurs (sans config)
@@ -23,13 +23,16 @@ from .report import write_initial_report, write_report
 from .wiring import selection_backend
 
 
-def _advise(parsed, data_dir):
-    rec = build_recommendation(parsed)
+def _advise(parsed, data_dir, freeze_to=None):
+    rec = build_recommendation(parsed, freeze_to=freeze_to)
     path = write_report(rec, data_dir)
-    band = rec["armband"]
+    band, v = rec["armband"], rec["verdict"]
+    if rec.get("frozen_projections"):
+        print(f"Projections figées : {rec['frozen_projections']}")
     print(f"Rapport : {path}")
-    print(f"GW{rec['gw']} — capitaine {band['captain']['web_name']}, "
+    print(f"GW{rec['gw']} — {v.label} : capitaine {band['captain']['web_name']}, "
           f"vice {band['vice']['web_name']} ; transfert : {rec['transfer']['decision']}")
+    print(f"Contrôle qualité : {v.state.upper()} — {v.summary}")
     return 0
 
 
@@ -58,10 +61,14 @@ def main(argv=None):
                          "aucune validation de qualité")
     ap.add_argument("--freeze-projections", metavar="FICHIER",
                     help="écrit le contrat de projections dans un fichier JSON "
-                         "réutilisable sans le snapshot")
+                         "réutilisable sans le snapshot (initial-squad et "
+                         "advise/run : trace auditable de la décision, sans "
+                         "aucune donnée personnelle)")
     ap.add_argument("--from-projections", metavar="FICHIER",
                     help="repart d'un contrat de projections figé : aucune "
-                         "collecte, aucun recalcul de prévision")
+                         "collecte, aucun recalcul de prévision. Réservé à "
+                         "initial-squad : le mode hebdomadaire a aussi besoin "
+                         "de l'effectif détenu, qui reste hors du contrat")
     ap.add_argument("--with-history", action="store_true",
                     help="initial-squad : collecte aussi les saisons passées "
                          "(un GET public par joueur, long mais c'est la source "
@@ -70,7 +77,7 @@ def main(argv=None):
 
     if args.command == "demo":
         from .demo import build_parsed
-        return _advise(build_parsed(), args.data_dir)
+        return _advise(build_parsed(), args.data_dir, args.freeze_projections)
 
     if args.command in ("initial-squad", "initial-bench"):
         if args.from_projections:
@@ -113,12 +120,13 @@ def main(argv=None):
         print(load_duckdb(parsed, f"{args.data_dir}/fpl.duckdb"))
         if args.command == "collect":
             return 0
-        return _advise(parsed, args.data_dir)
+        return _advise(parsed, args.data_dir, args.freeze_projections)
 
     run_dir = latest_snapshot_dir(args.data_dir)
     if run_dir is None:
         raise SystemExit("Aucun snapshot : lancer d'abord `python3 -m fpl_advisor collect`.")
-    return _advise(load_snapshot(run_dir, cfg), args.data_dir)
+    return _advise(load_snapshot(run_dir, cfg), args.data_dir,
+                   args.freeze_projections)
 
 
 if __name__ == "__main__":

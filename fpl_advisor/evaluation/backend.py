@@ -18,14 +18,21 @@ from typing import Callable
 
 @dataclass
 class SelectionBackend:
-    """Quatre fonctions, fournies par l'orchestrateur :
+    """Cinq fonctions, fournies par l'orchestrateur :
 
       select(rows, gws)    -> (effectif, valeur)
       value(squad, gws)    -> valeur d'un effectif donné
       legality(squad)      -> faits FPL (coût, quotas, joueurs par club)
       decisions(squad, gws)-> XI, banc, capitaine et vice figés par GW
+      weekly(rows, squad_ids, bank, gws)
+                           -> décision complète de la semaine (XI, brassard,
+                              arbitrage de transfert) pour un effectif détenu
+
+    `weekly` n'est requise que pour mesurer la stabilité des décisions
+    hebdomadaires ; le mode effectif initial n'en a pas besoin.
     """
     select: Callable
     value: Callable
     legality: Callable
     decisions: Callable          # (squad, gws) -> {gw: {xi, bench, captain, vice}}
+    weekly: Callable = None      # (rows, squad_ids, bank, gws) -> décision

@@ -59,17 +59,86 @@ def _armband_lines(band):
     return lines
 
 
+def _quality_lines(verdict, titre, note_bloquante):
+    """Table du contrôle qualité, commune aux deux rapports."""
+    lines = [f"\n## {titre}",
+             f"\nVerdict : **{verdict.state.upper()}**. {verdict.summary}",
+             "\n| Contrôle | État | Détail |", "|---|---|---|"]
+    for chk in verdict.checks:
+        mark = {"accepté": "accepté", "avertissement": "**avertissement**",
+                "bloqué": "**BLOQUÉ**"}[chk.state]
+        lines.append(f"| `{chk.key}` | {mark} | {chk.detail} |")
+    if verdict.state == "bloqué":
+        lines.append("\n> " + note_bloquante)
+    return lines
+
+
+def _scenario_lines(rec):
+    """Les décisions de la semaine survivent-elles au changement de priors ?"""
+    sc, ag = rec.get("scenarios"), rec.get("agreement")
+    if not sc or not ag:
+        return []
+    n = ag["n_scenarios"]
+    lines = [
+        "\n## Trois scénarios et stabilité des décisions",
+        f"\nMême effectif, mêmes données, trois jeux de priors. Ce qui bouge "
+        f"n'est pas l'équipe — elle est détenue — mais ce qu'on en fait. "
+        f"Accords avec le scénario {ag['reference']} : capitaine "
+        f"{ag['captain_agree']}/{n}, arbitrage transférer/conserver "
+        f"{ag['decision_agree']}/{n}, couple sortant/entrant exact "
+        f"{ag['swap_agree']}/{n}, XI au minimum "
+        f"{ag['xi_min_overlap']}/{ag['xi_size']} joueurs communs.",
+        "\n| Scénario | Capitaine | EP | Transfert | Meilleur échange | XI commun |",
+        "|---|---|---|---|---|---|",
+    ]
+    for r in sc:
+        lines.append(f"| {r['label']} | {r['captain_name']} | "
+                     f"{r['captain_ep']:.2f} | {r['decision']} | "
+                     f"{r['swap_label']} | {r['xi_overlap']}/{ag['xi_size']} |")
+    lines.append("\nUne décision qui ne survit pas au changement de scénario est "
+                 "un tirage au sort entre options équivalentes, pas une "
+                 "recommandation — le contrôle qualité ci-dessus la bloque.")
+    return lines
+
+
 def render(rec):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     teams = rec["teams"]
+    verdict = rec.get("verdict")
+    bloque = verdict is not None and verdict.state == "bloqué"
+    titre = ("DÉCISION TECHNIQUE — publication refusée" if bloque
+             else "conseiller FPL V0")
     lines = [
-        f"# Recommandation GW{rec['gw']} — conseiller FPL V0",
+        f"# Recommandation GW{rec['gw']} — {titre}",
         f"\nGénéré le {now}. Deadline GW{rec['gw']} : {rec['deadline']}. "
-        f"Snapshot : `{rec['run_dir']}`. Historique de minutes disponible : "
-        f"{rec['n_history_gws']} GW.",
+        f"Snapshot : `{rec['run_dir']}` (données connues au "
+        f"{rec.get('as_of', 'date inconnue')}). Historique de minutes "
+        f"disponible : {rec['n_history_gws']} GW. Contrat de projections "
+        f"v{rec.get('contract_version', '?')} "
+        f"(modèle {rec.get('model_version', '?')}).",
         "\nToutes les décisions restent soumises à validation humaine. "
         "Document local — contient des données personnelles, ne pas publier.",
     ]
+    if rec.get("synthetic"):
+        lines.append(
+            "\n> **DÉMO SYNTHÉTIQUE — AUCUNE VALEUR DE RECOMMANDATION.** Les "
+            "joueurs, clubs et historiques de ce rapport sont fabriqués. Ce "
+            "rendu prouve que le pipeline tourne ; il ne dit rien de la "
+            "qualité des projections sur données réelles.")
+    if rec.get("confidence"):
+        lines.append(
+            f"\n**Confiance de la couche de projection : "
+            f"{rec['confidence'].upper()}** — {rec['confidence_why']}.")
+
+    # Contrôle qualité — décide si l'on a le droit de parler de recommandation.
+    if verdict is not None:
+        lines += _quality_lines(
+            verdict, "Contrôle qualité de la décision",
+            "Ces décisions sont un **candidat technique** de la semaine, "
+            "calculé pour le diagnostic. Au moins un contrôle bloquant a "
+            "échoué : ne pas les jouer telles quelles. Une décision périmée "
+            "ou instable se corrige par une nouvelle collecte ou de "
+            "meilleures projections, pas par un autre optimiseur.")
 
     # Synthèse
     band, tr = rec["armband"], rec["transfer"]
@@ -87,9 +156,12 @@ def render(rec):
            " le transfert gratuit (aucun gain net suffisant identifié)"),
     ]
 
-    lines += _xi_lines(rec["xi"], teams)
+    lines += _xi_lines(rec["xi"], teams,
+                       title="XI calculé (non publiable)" if bloque
+                       else "XI recommandé")
     lines += _bench_lines(rec["bench"])
     lines += _armband_lines(band)
+    lines += _scenario_lines(rec)
     c, v = band["captain"], band["vice"]
 
     # Transfert
@@ -247,21 +319,12 @@ def render_initial(rec):
 
     # Contrôle qualité — décide si l'on a le droit de parler de recommandation.
     if verdict is not None:
-        lines += [
-            "\n## Contrôle qualité des projections",
-            f"\nVerdict : **{verdict.state.upper()}**. {verdict.summary}",
-            "\n| Contrôle | État | Détail |", "|---|---|---|",
-        ]
-        for chk in verdict.checks:
-            mark = {"accepté": "accepté", "avertissement": "**avertissement**",
-                    "bloqué": "**BLOQUÉ**"}[chk.state]
-            lines.append(f"| `{chk.key}` | {mark} | {chk.detail} |")
-        if bloque:
-            lines.append(
-                "\n> Cet effectif est un **candidat technique**, calculé pour le "
-                "diagnostic. Ce n'est pas une recommandation : au moins un "
-                "contrôle bloquant a échoué. Le corriger demande de meilleures "
-                "données ou de meilleures projections, pas un autre optimiseur.")
+        lines += _quality_lines(
+            verdict, "Contrôle qualité des projections",
+            "Cet effectif est un **candidat technique**, calculé pour le "
+            "diagnostic. Ce n'est pas une recommandation : au moins un "
+            "contrôle bloquant a échoué. Le corriger demande de meilleures "
+            "données ou de meilleures projections, pas un autre optimiseur.")
 
     # Synthèse
     d, m, f = (sum(1 for p in rec["xi"] if p["element_type"] == t) for t in (2, 3, 4))

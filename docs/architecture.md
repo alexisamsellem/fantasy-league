@@ -47,7 +47,7 @@ Ces trois règles sont vérifiées par des tests qui lisent le code source
 Mesurer la stabilité du top 15 demande de ré-optimiser une équipe sous chaque
 scénario. L'évaluation aurait donc « besoin » de l'optimiseur, ce qui
 inverserait la flèche. On inverse plutôt la dépendance : l'évaluation déclare
-l'interface dont elle a besoin (`evaluation/backend.py`, quatre fonctions), et
+l'interface dont elle a besoin (`evaluation/backend.py`, cinq fonctions), et
 l'appelant lui fournit l'implémentation réelle (`fpl_advisor/wiring.py`).
 Un test peut donc injecter un sélecteur factice et vérifier les verdicts sans
 faire tourner le vrai optimiseur.
@@ -77,10 +77,30 @@ python3 -m fpl_advisor initial-squad --from-projections projections.json
 Le rapport produit par le second appel est identique au premier, à
 l'horodatage près. C'est la preuve opérationnelle que la frontière tient.
 
+## Les deux modes passent par le même chemin
+
+Le dépôt prend deux sortes de décisions, avec la même mécanique :
+
+| | Mode effectif initial (`initial.py`) | Mode hebdomadaire (`weekly.py`) |
+|---|---|---|
+| Question | quels 15 joueurs acheter avant la GW1 ? | que faire cette semaine de l'effectif que j'ai ? |
+| Horizon | 4 GW | 3 GW |
+| Ce qui est optimisé | l'effectif entier | le brassard, le XI, transférer ou conserver |
+| Ce qui est mesuré | recouvrement du top 15 entre scénarios | accord des décisions entre scénarios |
+| Porte qualité | `quality.assess` | `quality.assess_weekly` |
+
+L'effectif détenu est une **donnée personnelle** : il n'entre jamais dans le
+contrat de projections, qui reste public et publiable. Il est passé à part, en
+simples identifiants, par `advise.py`.
+
 ## Le contrôle qualité
 
 `evaluation/quality.py` rend un verdict déterministe en trois états, à partir
-du contrat et de faits simples sur l'effectif candidat :
+du contrat et de faits simples sur ce qui est proposé. Le module ne lit jamais
+l'horloge tout seul : l'heure de décision lui est passée, pour que le verdict
+reste reproductible.
+
+Contrôles du mode effectif initial :
 
 | Contrôle | Bloque quand |
 |---|---|
@@ -93,16 +113,38 @@ du contrat et de faits simples sur l'effectif candidat :
 | `capitaine_plausible` | capitaine sous 30 % de chances de jouer 60 minutes |
 | `baseline_publique` | (avertissement seulement) recouvrement ≤ 2/15 |
 
+Contrôles du mode hebdomadaire (`couverture_donnees` et `fallbacks_faibles`
+sont communs) :
+
+| Contrôle | Bloque quand |
+|---|---|
+| `deadline_actionnable` | la deadline de la GW visée est déjà passée |
+| `fraicheur_snapshot` | la collecte a plus de 72 heures (avertissement dès 24) |
+| `effectif_lisible` | un joueur détenu est absent du contrat (radié, identifiant inconnu) |
+| `capitaine_plausible` | capitaine sous 30 % de chances de jouer 60 minutes |
+| `stabilite_capitaine` | moins de 2 scénarios sur 3 désignent le même capitaine |
+| `stabilite_transfert` | moins de 2 scénarios sur 3 concluent au même arbitrage |
+| `stabilite_echange` | moins de 2 scénarios sur 3 visent le même couple sortant/entrant |
+| `stabilite_xi` | (avertissement seulement) moins de 10 titulaires communs sur 11 |
+
+Les deux premiers n'existent qu'à la semaine, et c'est volontaire : avant la
+GW1 une collecte de la veille est sans conséquence, alors qu'en cours de saison
+elle ignore les blessures, les conférences de presse et les changements de
+prix. Une recommandation publiée après la deadline n'est plus une décision.
+
 Ces seuils sont des **règles de publication**, pas des paramètres de modèle :
 les changer ne modifie aucune projection.
 
-Quand le verdict est **bloqué**, l'équipe est toujours calculée — on en a
-besoin pour diagnostiquer — mais le rapport l'appelle **candidat technique**
-et non recommandation, dès son titre.
+Quand le verdict est **bloqué**, l'équipe ou la décision est toujours calculée
+— on en a besoin pour diagnostiquer — mais le rapport l'appelle **candidat
+technique** (effectif) ou **décision technique** (semaine), et non
+recommandation, dès son titre.
 
 ## Ce qui reste volontairement hors périmètre
 
-Le mode hebdomadaire (`advise.py`) n'est pas encore passé par le contrat : il
-appelle le forecasting directement, comme le fait tout orchestrateur. Le
-migrer n'apporterait rien aujourd'hui et ferait courir un risque de régression
-sur la seule commande déjà utilisée en conditions réelles.
+`--from-projections` n'existe pas pour le mode hebdomadaire. Rejouer une
+semaine depuis un contrat figé demanderait aussi l'effectif détenu, qui est
+une donnée personnelle et reste par construction hors du contrat. Le figeage
+(`--freeze-projections`) fonctionne dans les deux modes : il produit la trace
+auditable de ce que le moteur croyait au moment de la décision, sans jamais
+transporter de donnée personnelle.

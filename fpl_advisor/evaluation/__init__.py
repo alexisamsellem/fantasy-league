@@ -9,7 +9,7 @@ Il n'importe jamais `optimization` : mesurer la stabilité exige de
 ré-optimiser, donc l'appelant injecte un `SelectionBackend` (voir `backend.py`).
 
   quality     verdict en trois états et ses seuils de publication
-  stability   recouvrement du top 15 entre scénarios
+  stability   stabilité entre scénarios : top 15, décisions de la semaine
   baseline    repère public naïf (ep_next, repli selected_by_percent)
   bench       protocole de comparaison figé et son exécution
 """
@@ -17,9 +17,10 @@ ré-optimiser, donc l'appelant injecte un `SelectionBackend` (voir `backend.py`)
 from . import backend, baseline, bench, quality, stability  # noqa: F401
 from .backend import SelectionBackend  # noqa: F401
 from .quality import (ACCEPTED, BLOCKED, WARNING, Check, Verdict,  # noqa: F401
-                      assess)
-from .stability import top15_stability  # noqa: F401
+                      assess, assess_weekly)
+from .stability import decision_stability, top15_stability  # noqa: F401
 
 __all__ = ["quality", "stability", "baseline", "bench", "backend",
-           "SelectionBackend", "assess", "Verdict", "Check", "top15_stability",
+           "SelectionBackend", "assess", "assess_weekly", "Verdict", "Check",
+           "top15_stability", "decision_stability",
            "ACCEPTED", "WARNING", "BLOCKED"]

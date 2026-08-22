@@ -3,8 +3,19 @@
 
 Ce module répond à une seule question : « a-t-on le droit d'appeler ça une
 recommandation ? » Il ne produit aucune prévision et ne choisit aucun joueur.
-Il lit le contrat de projections et des FAITS sur l'effectif candidat (coût,
-capitaine, recouvrements), jamais les données brutes ni l'optimiseur.
+Il lit le contrat de projections et des FAITS sur la décision candidate (coût,
+capitaine, recouvrements, accords entre scénarios), jamais les données brutes
+ni l'optimiseur.
+
+Deux portes, mêmes trois états :
+  assess()         mode effectif initial — juge un top 15 construit de zéro
+  assess_weekly()  mode hebdomadaire — juge les décisions de la semaine sur un
+                   effectif déjà détenu (brassard, XI, transférer ou conserver)
+
+Elles partagent les contrôles qui portent sur les projections elles-mêmes et
+divergent sur le reste : le budget engagé ne veut rien dire quand l'effectif
+est celui du manager, et la fraîcheur de la collecte est vitale à la semaine
+alors qu'elle est secondaire avant la GW1.
 
 Le verdict est déterministe : mêmes entrées, même état. Un effectif reste
 toujours calculable pour le diagnostic — mais si le verdict est « bloqué », le
@@ -12,6 +23,7 @@ rapport doit l'appeler « candidat technique », pas « recommandation ».
 """
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 
 ACCEPTED = "accepté"
 WARNING = "avertissement"
@@ -31,6 +43,14 @@ BASELINE_OVERLAP_WARN = 2        # ≤ 2/15 communs avec la baseline publique
 FLAT_PRIOR_MARK = "prior de poste plat"
 FLAT_SHARE_BLOCK = 0.60          # top 15 dominé par des priors plats
 
+# Seuils propres au mode hebdomadaire. Ce sont encore des règles de
+# publication : les changer ne change aucune projection. [H, NON CALIBRÉ]
+SNAPSHOT_AGE_WARN_H = 24         # collecte d'hier : statuts et prix ont bougé
+SNAPSHOT_AGE_BLOCK_H = 72
+SCENARIO_AGREE_BLOCK = 2         # < 2 scénarios sur 3 d'accord → bloqué
+XI_OVERLAP_WARN = 10             # sur 11 titulaires
+SQUAD_SIZE = 15
+
 
 @dataclass
 class Check:
@@ -39,11 +59,18 @@ class Check:
     detail: str
 
 
+KIND_SQUAD = "effectif"
+KIND_DECISION = "décision"
+BLOCKED_LABEL = {KIND_SQUAD: "candidat technique",
+                 KIND_DECISION: "décision technique"}
+
+
 @dataclass
 class Verdict:
     state: str
     checks: list = field(default_factory=list)
     summary: str = ""
+    kind: str = KIND_SQUAD
 
     @property
     def publishable(self):
@@ -51,15 +78,17 @@ class Verdict:
 
     @property
     def label(self):
-        """Comment le rapport doit nommer l'effectif."""
-        return "candidat technique" if self.state == BLOCKED else "recommandation"
+        """Comment le rapport doit nommer ce qui a été calculé."""
+        if self.state != BLOCKED:
+            return "recommandation"
+        return BLOCKED_LABEL.get(self.kind, BLOCKED_LABEL[KIND_SQUAD])
 
     def reasons(self, state=None):
         return [c for c in self.checks if state is None or c.state == state]
 
     def to_dict(self):
         return {"state": self.state, "summary": self.summary, "label": self.label,
-                "checks": [asdict(c) for c in self.checks]}
+                "kind": self.kind, "checks": [asdict(c) for c in self.checks]}
 
 
 def _worst(checks):
@@ -162,6 +191,27 @@ def _baseline(overlap, squad_size=15):
     return Check("baseline_publique", state, detail)
 
 
+def _conclude(checks, kind):
+    """État global et phrase de verdict, communs aux deux portes."""
+    state = _worst(checks)
+    blocking = [c.key for c in checks if c.state == BLOCKED]
+    warning = [c.key for c in checks if c.state == WARNING]
+    quoi = "L'effectif reste calculé" if kind == KIND_SQUAD \
+        else "Les décisions restent calculées"
+    if state == BLOCKED:
+        summary = ("Publication refusée : " + ", ".join(blocking)
+                   + f". {quoi} pour le diagnostic, mais il faut les appeler "
+                     f"« {BLOCKED_LABEL[kind]} », pas « recommandation ».")
+    elif state == WARNING:
+        summary = ("Publiable avec avertissements : " + ", ".join(warning)
+                   + ". À lire comme une baseline non calibrée.")
+    else:
+        summary = ("Aucun défaut détecté par le contrôle qualité. Cela ne "
+                   "démontre pas que les projections sont justes : la "
+                   "calibration se mesure après coup.")
+    return Verdict(state=state, checks=checks, summary=summary, kind=kind)
+
+
 def assess(contract, min_overlap=None, squad_facts=None, baseline_overlap=None,
            squad_ids=None):
     """Verdict déterministe. Toutes les entrées sont facultatives sauf le
@@ -174,18 +224,122 @@ def assess(contract, min_overlap=None, squad_facts=None, baseline_overlap=None,
         if maybe is not None:
             checks.append(maybe)
 
-    state = _worst(checks)
-    blocking = [c.key for c in checks if c.state == BLOCKED]
-    warning = [c.key for c in checks if c.state == WARNING]
+    return _conclude(checks, KIND_SQUAD)
+
+
+# --------------------------------------------------- contrôles hebdomadaires ----
+
+def _parse_iso(ts):
+    """Horodatage ISO tolérant : None, « Z » final, absence de fuseau."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _freshness(contract, now):
+    """Âge de la collecte. À la semaine, une collecte périmée est le risque
+    numéro un : statuts d'infirmerie, prix et conférences de presse bougent
+    tous les jours, et le rapport ne le sait pas."""
+    as_of = _parse_iso(contract.as_of)
+    if as_of is None or now is None:
+        return Check("fraicheur_snapshot", WARNING,
+                     "date de collecte illisible — âge inconnu")
+    hours = (now - as_of).total_seconds() / 3600.0
+    if hours < 0:
+        return Check("fraicheur_snapshot", WARNING,
+                     f"collecte datée du futur ({contract.as_of}) — horloge suspecte")
+    state = (BLOCKED if hours >= SNAPSHOT_AGE_BLOCK_H
+             else WARNING if hours >= SNAPSHOT_AGE_WARN_H else ACCEPTED)
+    detail = f"collecte vieille de {hours:.0f} h (connue au {contract.as_of})"
+    if state != ACCEPTED:
+        detail += " — statuts, prix et forfaits ont pu changer depuis ; recollecter"
+    return Check("fraicheur_snapshot", state, detail)
+
+
+def _deadline(contract, now):
+    """La décision est-elle encore actionnable ?
+
+    Une recommandation publiée après la deadline n'est plus une décision, c'est
+    un commentaire. Le moteur ne le vérifiait pas."""
+    dl = _parse_iso(contract.deadline)
+    if dl is None or now is None:
+        return Check("deadline_actionnable", WARNING,
+                     f"deadline GW{contract.gw} inconnue — actionnabilité non vérifiée")
+    left = (dl - now).total_seconds() / 3600.0
+    if left <= 0:
+        return Check("deadline_actionnable", BLOCKED,
+                     f"deadline GW{contract.gw} dépassée de {-left:.0f} h "
+                     f"({contract.deadline}) : plus rien n'est actionnable, "
+                     "relancer sur la GW suivante")
+    return Check("deadline_actionnable", ACCEPTED,
+                 f"{left:.0f} h avant la deadline GW{contract.gw} ({contract.deadline})")
+
+
+def _squad_readable(facts):
+    """Les 15 joueurs détenus sont-ils tous projetables ?"""
+    size = facts.get("squad_size")
+    if size is None:
+        return None
+    missing = facts.get("missing_names") or facts.get("missing_ids") or []
+    if missing:
+        return Check("effectif_lisible", BLOCKED,
+                     f"{len(missing)} joueur(s) de l'effectif absent(s) du contrat "
+                     f"de projections ({', '.join(str(m) for m in missing)}) : "
+                     "radiés du championnat ou identifiants inconnus — le XI et "
+                     "le transfert sont calculés sans eux")
+    state = ACCEPTED if size == SQUAD_SIZE else WARNING
+    return Check("effectif_lisible", state,
+                 f"{size}/{SQUAD_SIZE} joueurs détenus lus et projetés")
+
+
+def _agreement(key, agree, total, label, block_below=SCENARIO_AGREE_BLOCK):
+    if agree is None or not total:
+        return None
+    state = (ACCEPTED if agree == total
+             else WARNING if agree >= block_below else BLOCKED)
+    detail = f"{label} : {agree}/{total} scénarios d'accord avec le central"
     if state == BLOCKED:
-        summary = ("Publication refusée : " + ", ".join(blocking)
-                   + ". L'effectif reste calculé pour le diagnostic, mais il "
-                     "doit être appelé « candidat technique », pas « recommandation ».")
+        detail += " — la décision dépend du jeu de priors, pas des données"
     elif state == WARNING:
-        summary = ("Publiable avec avertissements : " + ", ".join(warning)
-                   + ". À lire comme une baseline non calibrée.")
-    else:
-        summary = ("Aucun défaut détecté par le contrôle qualité. Cela ne "
-                   "démontre pas que les projections sont justes : la "
-                   "calibration se mesure après coup.")
-    return Verdict(state=state, checks=checks, summary=summary)
+        detail += " — décision fragile, à relire avant d'agir"
+    return Check(key, state, detail)
+
+
+def _xi_agreement(facts):
+    overlap = facts.get("xi_min_overlap")
+    if overlap is None:
+        return None
+    size = facts.get("xi_size", 11)
+    state = ACCEPTED if overlap >= XI_OVERLAP_WARN else WARNING
+    return Check("stabilite_xi", state,
+                 f"recouvrement minimal du XI entre scénarios : {overlap}/{size} "
+                 f"(seuil d'alerte {XI_OVERLAP_WARN}/{size})")
+
+
+def assess_weekly(contract, facts=None, now=None):
+    """Verdict des décisions de la semaine sur un effectif déjà détenu.
+
+    `facts` porte ce que l'orchestrateur a mesuré : taille de l'effectif lu,
+    joueurs introuvables, plausibilité du capitaine, accords entre scénarios.
+    `now` est passé explicitement pour que le verdict reste déterministe et
+    testable — le module ne lit jamais l'horloge tout seul."""
+    facts = facts or {}
+    now = now or datetime.now(timezone.utc)
+    checks = [_data_coverage(contract), _weak_fallbacks(contract),
+              _freshness(contract, now), _deadline(contract, now)]
+    n = facts.get("n_scenarios")
+    for maybe in (_squad_readable(facts), _captain(facts),
+                  _agreement("stabilite_capitaine", facts.get("captain_agree"), n,
+                             "identité du capitaine"),
+                  _agreement("stabilite_transfert", facts.get("decision_agree"), n,
+                             "arbitrage transférer/conserver"),
+                  _agreement("stabilite_echange", facts.get("swap_agree"), n,
+                             "couple sortant/entrant exact"),
+                  _xi_agreement(facts)):
+        if maybe is not None:
+            checks.append(maybe)
+    return _conclude(checks, KIND_DECISION)

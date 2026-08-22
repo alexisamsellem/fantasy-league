@@ -18,18 +18,31 @@ python3 -m unittest discover -s tests && python3 -m fpl_advisor run
 
 `run` collecte les données publiques FPL (snapshot immuable horodaté sous
 `data/snapshots/`), met à jour `data/fpl.duckdb`, puis écrit la recommandation
-dans `data/reports/GW<n>-recommandation-<horodatage>.md` : XI, banc ordonné,
-capitaine + vice (règle FPL exacte), transférer vs conserver, projections,
-incertitude, hypothèses, déclencheurs de révision, exposition des rivaux
-(picks publics de la dernière GW close uniquement).
+dans `data/reports/GW<n>-recommandation-<horodatage>.md` : contrôle qualité,
+XI, banc ordonné, capitaine + vice (règle FPL exacte), stabilité des décisions
+entre scénarios, transférer vs conserver, projections, incertitude,
+hypothèses, déclencheurs de révision, exposition des rivaux (picks publics de
+la dernière GW close uniquement).
+
+**Le rapport commence par un verdict en trois états.** Si un contrôle bloque —
+deadline dépassée, collecte de plus de 72 heures, joueur de l'effectif absent
+du contrat, capitaine implausible, décision qui change selon le jeu de priors —
+les décisions restent calculées pour le diagnostic mais le rapport les appelle
+**décision technique**, jamais recommandation. La liste complète des contrôles
+est dans `docs/architecture.md`.
 
 Un flag de blessure tombe après la collecte ? Relancer la même commande :
 chaque exécution repart des données fraîches sans écraser les snapshots
-précédents.
+précédents. C'est aussi ce que mesure le contrôle `fraicheur_snapshot` : la
+date de connaissance des données vient du manifeste du snapshot, pas de
+l'heure à laquelle le rapport est produit.
 
-Autres commandes : `collect` (collecte seule), `advise` (recommandation depuis
-le dernier snapshot), `demo` (bout-en-bout sur données 100 % synthétiques,
-aucun réseau requis), `initial-squad` (effectif initial, section suivante).
+Autres commandes : `collect` (collecte seule), `advise` (décision de la semaine
+depuis le dernier snapshot), `demo` (bout-en-bout sur données 100 %
+synthétiques, aucun réseau requis), `initial-squad` (effectif initial, section
+suivante). `--freeze-projections FICHIER` fonctionne aussi sur `advise` et
+`run` : il écrit la trace auditable des projections utilisées, sans aucune
+donnée personnelle.
 
 ## Avant la GW1 : construire l'effectif initial
 
@@ -123,9 +136,12 @@ python3 -m fpl_advisor initial-squad --demo --freeze-projections projections.jso
 python3 -m fpl_advisor initial-squad --from-projections projections.json
 ```
 
-Si le contrôle qualité **bloque**, l'équipe est quand même calculée pour le
-diagnostic, mais le rapport l'appelle « candidat technique » et non
-« recommandation ». Détail complet : `docs/architecture.md`.
+Les deux modes empruntent ce chemin : `initial.py` construit un effectif de
+zéro avant la GW1, `weekly.py` décide quoi faire chaque semaine de l'effectif
+détenu. Si le contrôle qualité **bloque**, le résultat est quand même calculé
+pour le diagnostic, mais le rapport l'appelle « candidat technique » (effectif)
+ou « décision technique » (semaine), jamais « recommandation ». Détail
+complet : `docs/architecture.md`.
 
 ## Où trouver team_id et league_id
 
@@ -162,7 +178,10 @@ exhaustive, formule du brassard, modèle de minutes, seuil de transfert,
 EO locale (capitaine double), bout-en-bout complet sur le jeu synthétique,
 plus les tests du protocole J0 (snapshots immuables, trace probante), ceux du
 mode effectif initial (quotas, budget, limite de club, optimum local, rapport,
-CLI sans config), les régressions de la couche de projection (prix compté deux
+CLI sans config), ceux du mode hebdomadaire (décision passée par le contrat,
+égalité chiffre à chiffre avec le chemin historique, deadline dépassée,
+collecte périmée, joueur illisible, désaccord entre scénarios), les
+régressions de la couche de projection (prix compté deux
 fois, certitude excessive après une apparition, petit échantillon offensif non
 rétréci, DEFCON binaire, présélection dominée par la GW1, instabilité non
 détectée) et le test d'acceptation du banc d'essai.

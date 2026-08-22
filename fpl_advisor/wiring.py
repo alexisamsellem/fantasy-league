@@ -10,6 +10,7 @@ peut fabriquer le même objet avec des fonctions factices.
 from .evaluation.backend import SelectionBackend
 from .optimization import initial as opt_initial
 from .optimization import squad as squad_rules
+from .optimization import weekly as opt_weekly
 
 
 def _decisions(squad, gws):
@@ -35,4 +36,5 @@ def _select(rows, gws):
 def selection_backend():
     """Adaptateur standard : l'optimiseur réel du dépôt."""
     return SelectionBackend(select=_select, value=opt_initial.squad_value,
-                            legality=opt_initial.legality, decisions=_decisions)
+                            legality=opt_initial.legality, decisions=_decisions,
+                            weekly=opt_weekly.weekly_decision)

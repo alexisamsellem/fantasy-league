@@ -120,6 +120,31 @@ def collect_all(cfg, data_dir="data"):
     return store.dir
 
 
+def snapshot_as_of(run_dir):
+    """Date de connaissance des données d'un snapshot : la plus récente des
+    dates de récupération du manifeste.
+
+    Sans elle, le contrat de projections se datait de l'heure d'exécution du
+    conseiller, pas de celle de la collecte — et un snapshot vieux de trois
+    jours passait pour frais. Repli sur le nom du répertoire (horodatage UTC de
+    la collecte), puis sur None : jamais une date fabriquée."""
+    run_dir = Path(run_dir)
+    manifest = run_dir / "manifest.json"
+    if manifest.exists():
+        try:
+            entries = json.loads(manifest.read_text(encoding="utf-8"))
+            stamps = [e.get("retrieved_at") for e in entries if e.get("retrieved_at")]
+            if stamps:
+                return max(stamps)
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            pass
+    try:
+        dt = datetime.strptime(run_dir.name.split("-")[0], "%Y%m%dT%H%M%SZ")
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=timezone.utc).isoformat()
+
+
 def _read(run_dir, name):
     p = Path(run_dir) / f"{name}.json"
     if not p.exists():
@@ -164,6 +189,7 @@ def load_snapshot(run_dir, cfg):
 
     return {
         "run_dir": str(run_dir),
+        "as_of": snapshot_as_of(run_dir),
         "bootstrap": boot,
         "fixtures": _read(run_dir, "fixtures") or [],
         "live": live,
@@ -215,6 +241,7 @@ def load_public_snapshot(run_dir, team_reference=TEAM_REFERENCE):
     elements = boot.get("elements", [])
     return {
         "run_dir": str(run_dir),
+        "as_of": snapshot_as_of(run_dir),
         "bootstrap": boot,
         "fixtures": _read(run_dir, "fixtures") or [],
         "live": live,

@@ -24,6 +24,11 @@ def pick_xi(squad):
         score = sum(p["ep"] for p in xi)
         if score > best_score:
             best, best_score = xi, score
+    if best is None:
+        raise ValueError(
+            "aucune formation FPL légale avec cet effectif : "
+            + ", ".join(f"{n} au poste {t}" for t, n in
+                        sorted((t, len(v)) for t, v in by_pos.items())))
     xi_ids = {p["id"] for p in best}
     bench_gk = [p for p in by_pos[1][1:] if p["id"] not in xi_ids]
     bench_out = sorted((p for p in squad
