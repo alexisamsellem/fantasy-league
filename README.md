@@ -31,6 +31,11 @@ les décisions restent calculées pour le diagnostic mais le rapport les appelle
 **décision technique**, jamais recommandation. La liste complète des contrôles
 est dans `docs/architecture.md`.
 
+**Lancer le conseiller avant de transférer dans l'app.** L'API publique ne rend
+l'effectif que pour la dernière GW close : un transfert déjà effectué pour la GW
+visée rend le rapport caduc, et le contrôle `effectif_a_jour` bloque plutôt que
+de raisonner sur une équipe périmée.
+
 Avant la 3ᵉ journée jouée, ajouter `--with-history` une fois : sans les saisons
 passées, rien ne distingue deux joueurs d'un même poste et le contrôle
 `couverture_donnees` bloque. Compter ~700 GET publics de plus (plusieurs

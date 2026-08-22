@@ -328,6 +328,29 @@ def _squad_readable(facts):
                  f"{size}/{SQUAD_SIZE} joueurs détenus lus et projetés")
 
 
+def _squad_up_to_date(facts):
+    """L'effectif lu est-il encore celui qui jouera ?
+
+    Les picks publics datent de la dernière GW close. Un transfert déjà
+    effectué pour la GW à venir les rend faux, et rien dans les données ne le
+    signale : ni le XI, ni le brassard, ni l'arbitrage ne porteraient sur la
+    bonne équipe. Il n'y a pas de rattrapage possible en lecture seule — le
+    seul remède est de lancer le conseiller AVANT de transférer."""
+    n = facts.get("already_transferred")
+    pick_gw = facts.get("pick_gw")
+    if n is None:
+        return None
+    origine = f"effectif lu à la GW{pick_gw}" if pick_gw else "effectif lu"
+    if n:
+        return Check("effectif_a_jour", BLOCKED,
+                     f"{origine} ; {n} transfert(s) déjà enregistré(s) pour la GW "
+                     "à venir : l'API publique ne montre pas l'effectif courant, "
+                     "les décisions ci-dessous portent sur une équipe périmée. "
+                     "Lancer le conseiller AVANT de transférer dans l'app")
+    return Check("effectif_a_jour", ACCEPTED,
+                 f"{origine}, aucun transfert enregistré depuis pour la GW à venir")
+
+
 def _agreement(key, agree, total, label, block_below=SCENARIO_AGREE_BLOCK):
     if agree is None or not total:
         return None
@@ -364,7 +387,8 @@ def assess_weekly(contract, facts=None, now=None):
     checks = [_data_coverage_weekly(contract), _weak_fallbacks(contract),
               _freshness(contract, now), _deadline(contract, now)]
     n = facts.get("n_scenarios")
-    for maybe in (_squad_readable(facts), _captain(facts),
+    for maybe in (_squad_readable(facts), _squad_up_to_date(facts),
+                  _captain(facts),
                   _agreement("stabilite_capitaine", facts.get("captain_agree"), n,
                              "identité du capitaine"),
                   _agreement("stabilite_transfert", facts.get("decision_agree"), n,

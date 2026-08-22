@@ -27,7 +27,10 @@ def build_recommendation(parsed, now=None, freeze_to=None):
 
     contract = weekly.build_contract(parsed)
     frozen = contract.save(freeze_to) if freeze_to else None
-    rec = weekly.build_from_contract(contract, squad_ids, bank, now=now)
+    rec = weekly.build_from_contract(
+        contract, squad_ids, bank, now=now,
+        already_transferred=weekly.pending_transfers(parsed, contract.gw),
+        pick_gw=parsed.get("last_closed_gw"))
     rec["frozen_projections"] = str(frozen) if frozen else None
 
     exposure, expo_meta = local_exposure(parsed)

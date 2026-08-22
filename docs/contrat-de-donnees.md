@@ -61,6 +61,12 @@ utile pour comparer deux lectures, jamais pour décider sur des données vieille
 picks ne sont publics qu'à partir de ce moment. Avant, la commande s'arrête sur
 un `BLOCAGE FACTUEL` explicite plutôt que de deviner.
 
+**Et il ne l'est que pour la dernière GW close.** L'API publique ne rend jamais
+l'effectif courant. Conséquence pratique : lancer le conseiller **avant** de
+transférer dans l'app. Si un transfert est déjà enregistré pour la GW visée, le
+contrôle `effectif_a_jour` bloque — le XI et l'arbitrage porteraient sur une
+équipe qui n'existe plus, et aucune lecture publique ne permet de rattraper.
+
 ### 2.2 Mode effectif initial — avant la GW1
 
 ```bash

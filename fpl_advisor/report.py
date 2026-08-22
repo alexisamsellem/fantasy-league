@@ -119,6 +119,12 @@ def render(rec):
         "\nToutes les décisions restent soumises à validation humaine. "
         "Document local — contient des données personnelles, ne pas publier.",
     ]
+    if rec.get("pick_gw"):
+        lines.append(
+            f"\nEffectif lu dans les picks publics de la GW{rec['pick_gw']} "
+            "(dernière deadline passée) : l'API ne rend pas l'effectif courant. "
+            "Tout transfert effectué dans l'app depuis rendrait ce rapport "
+            "caduc — le contrôle `effectif_a_jour` le vérifie.")
     if rec.get("synthetic"):
         lines.append(
             "\n> **DÉMO SYNTHÉTIQUE — AUCUNE VALEUR DE RECOMMANDATION.** Les "

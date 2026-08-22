@@ -53,7 +53,19 @@ def read_squad(parsed):
     return ids, bank
 
 
-def build_from_contract(contract, squad_ids, bank, backend=None, now=None):
+def pending_transfers(parsed, gw):
+    """Transferts déjà effectués pour la GW à venir, d'après `entry/transfers`.
+
+    L'API publique ne rend l'effectif que de la DERNIÈRE GW CLOSE. Si le
+    manager a déjà transféré pour la GW suivante, les picks lus sont périmés :
+    le XI, le brassard et l'arbitrage porteraient sur une équipe qui n'existe
+    plus. Le fait est mesurable, donc il est mesuré."""
+    faits = (parsed.get("my") or {}).get("transfers") or []
+    return [t for t in faits if t.get("event") == gw]
+
+
+def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
+                        already_transferred=None, pick_gw=None):
     """Étapes 2 à 4 : décision, évaluation, mise en forme.
 
     N'accède à AUCUNE donnée brute : tout vient du contrat et des identifiants
@@ -82,6 +94,8 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None):
                           for pid in missing],
         "captain_p60": band["captain"]["p60"],
         "captain_name": band["captain"]["web_name"],
+        "already_transferred": len(already_transferred or []),
+        "pick_gw": pick_gw,
     })
     verdict = quality.assess_weekly(contract, facts, now=now)
 
@@ -108,6 +122,7 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None):
         "transfer": central["transfer"], "bank": bank,
         "horizon_eps": central["horizon_eps"], "market_size": central["market_size"],
         "missing_ids": missing, "missing_names": facts["missing_names"],
+        "pick_gw": pick_gw, "already_transferred": list(already_transferred or []),
         "scenarios": scenarios, "agreement": agreement,
         "verdict": verdict,
         "as_of": contract.as_of, "now": now.strftime("%Y-%m-%dT%H:%M:%SZ"),

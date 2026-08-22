@@ -156,6 +156,28 @@ class PorteQualiteHebdomadaireTests(unittest.TestCase):
                             if k.key == "stabilite_capitaine")
                 self.assertEqual(etat, attendu)
 
+    def test_transfert_deja_effectue_bloque(self):
+        """Les picks publics datent de la GW close. Un transfert déjà fait pour
+        la GW à venir les rend faux, et rien d'autre ne le signalerait."""
+        parsed = build_parsed()
+        gw = parsed["next_gw"]
+        self.assertEqual(weekly.pending_transfers(parsed, gw), [])
+        parsed["my"]["transfers"] = [
+            {"event": gw - 1, "element_in": 1, "element_out": 2},   # GW passée
+            {"event": gw, "element_in": 3, "element_out": 4},       # celle-ci
+        ]
+        self.assertEqual(len(weekly.pending_transfers(parsed, gw)), 1)
+        rec = build_recommendation(parsed)
+        self.assertIn("effectif_a_jour", self._bloquants(rec["verdict"]))
+        self.assertEqual(rec["verdict"].state, quality.BLOCKED)
+
+    def test_sans_transfert_l_effectif_est_declare_a_jour(self):
+        rec = _rec()
+        etat = next(c.state for c in rec["verdict"].checks
+                    if c.key == "effectif_a_jour")
+        self.assertEqual(etat, quality.ACCEPTED)
+        self.assertEqual(rec["pick_gw"], _parsed()["last_closed_gw"])
+
     def test_effectif_absent_bloque_avant_tout_calcul(self):
         parsed = dict(build_parsed(), my={})
         with self.assertRaises(SystemExit) as ctx:
