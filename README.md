@@ -45,8 +45,9 @@ de raisonner sur une équipe périmée.
 
 Avant la 3ᵉ journée jouée, ajouter `--with-history` une fois : sans les saisons
 passées, rien ne distingue deux joueurs d'un même poste et le contrôle
-`couverture_donnees` bloque. Compter ~700 GET publics de plus (plusieurs
-minutes). Détail : `docs/contrat-de-donnees.md`.
+`couverture_donnees` bloque. Compter un GET public par joueur en plus —
+~36 s pour 600 joueurs depuis une connexion domestique, mesuré le 22/08/2026,
+mais le coût dépend entièrement du réseau. Détail : `docs/contrat-de-donnees.md`.
 
 Un flag de blessure tombe après la collecte ? Relancer la même commande :
 chaque exécution repart des données fraîches sans écraser les snapshots

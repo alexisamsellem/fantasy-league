@@ -70,8 +70,8 @@ contrôle `effectif_a_jour` bloque — le XI et l'arbitrage porteraient sur une
 ### 2.2 Mode effectif initial — avant la GW1
 
 ```bash
-# Collecte complète, saisons passées comprises (~700 GET publics, comptez
-# plusieurs minutes ; aucun cookie, aucune authentification, lecture seule)
+# Collecte complète, saisons passées comprises (un GET public par joueur ;
+# aucun cookie, aucune authentification, lecture seule)
 python3 -m fpl_advisor initial-squad --with-history
 
 # Banc d'essai : effectif interne vs baseline publique, figés côte à côte
@@ -89,8 +89,9 @@ la confiance affichée baisse en conséquence, aucune valeur n'est inventée.
 
 ### 2.3 Les saisons passées en cours de saison
 
-`run` ne collecte pas les saisons passées par défaut : ce sont ~700 appels,
-trop lents pour un rituel de deadline. Les snapshots étant immuables et
+`run` ne collecte pas les saisons passées par défaut : c'est un appel public
+par joueur (~36 s pour 600 joueurs le 22/08/2026 depuis une connexion
+domestique, mais entièrement dépendant du réseau). Les snapshots étant immuables et
 indépendants, un run n'hérite jamais des `element-summary` du précédent.
 
 Ce que ça coûte dépend du nombre de journées déjà jouées, et le contrôle
@@ -105,7 +106,7 @@ En début de saison, il faut donc les collecter au moins une fois **dans un
 snapshot hebdomadaire** :
 
 ```bash
-python3 -m fpl_advisor run --with-history   # long : ~700 GET publics en plus
+python3 -m fpl_advisor run --with-history   # un GET public par joueur en plus
 ```
 
 À partir de la 3ᵉ journée jouée, `run` seul suffit ; le rapport continue de

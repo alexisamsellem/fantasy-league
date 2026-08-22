@@ -391,6 +391,37 @@ class ConfigurationLocaleTests(unittest.TestCase):
                     api.load_config(self._ecrire(tmp, mauvais))
 
 
+class AvancementDeLaCollecteTests(unittest.TestCase):
+    """Sur ~700 joueurs la collecte dure plusieurs minutes ; un terminal muet
+    pendant ce temps ne se distingue pas d'un blocage."""
+
+    def test_avancement_periodique_et_bilan_final(self):
+        lignes = []
+        elements = [{"id": i} for i in range(1, 121)]
+        vrai = collect.get_json
+        collect.get_json = lambda path, store=None, name=None: ({}, None)
+        try:
+            ok, fail = collect.collect_element_history(
+                None, elements, progress=lignes.append)
+        finally:
+            collect.get_json = vrai
+        self.assertEqual((ok, fail), (120, 0))
+        self.assertIn("120 joueurs à collecter", lignes[0])
+        # 50, 100, puis le total : trois points d'avancement.
+        self.assertEqual(len(lignes), 4)
+        self.assertIn("120/120", lignes[-1])
+
+    def test_progress_none_reste_silencieux(self):
+        vrai = collect.get_json
+        collect.get_json = lambda path, store=None, name=None: (None, "échec")
+        try:
+            ok, fail = collect.collect_element_history(
+                None, [{"id": 1}], progress=None)
+        finally:
+            collect.get_json = vrai
+        self.assertEqual((ok, fail), (0, 1))
+
+
 class RapportHebdomadaireTests(unittest.TestCase):
     def test_sections_completes(self):
         texte = render(_rec())
