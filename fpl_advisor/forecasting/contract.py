@@ -27,13 +27,14 @@ from .projection import project_horizon, project_player
 from .teams import team_factors
 
 CONTRACT_VERSION = "1.0"
-MODEL_VERSION = "forecasting/0.2.0"
+MODEL_VERSION = "forecasting/0.3.0"
 
 # Minutes forcées servant à isoler le risque de titularisation (colonne
 # « EP si 90' » du rapport) : ce n'est pas une prévision, c'est un contrefactuel.
 FORCED_START = {"p_play": 1.0, "p60": 1.0, "p_cameo": 0.0, "p0": 0.0,
                 "xmin": 90.0, "basis": "forcé titulaire", "avail": 1.0,
-                "confidence": "n/a", "n_gw": 0}
+                "confidence": "n/a", "n_gw": 0,
+                "n_starts_obs": 0, "n_apps_obs": 0}
 
 
 @dataclass
@@ -129,6 +130,7 @@ class ProjectionSet:
                 "ep": r.ep, "ep_if_start": r.ep_if_start,
                 "p_play": r.p_play, "p60": r.p60, "p0": r.p0,
                 "minutes_basis": r.provenance.get("minutes", ""),
+                "minutes_observed": r.provenance.get("minutes_observed") or {},
                 "minutes_confidence": r.confidence,
                 "rate_basis": r.provenance.get("rates", ""),
                 "defcon_basis": r.provenance.get("defcon", ""),
@@ -222,7 +224,13 @@ def build_projection_set(parsed, gws, as_of=None):
                 provenance={"minutes": minutes["basis"],
                             "rates": central.get("rate_basis", ""),
                             "defcon": central.get("defcon_basis", ""),
-                            "team": factors.get(p["team"], {}).get("source", "")},
+                            "team": factors.get(p["team"], {}).get("source", ""),
+                            # Fait observé, pas estimation : combien de GW
+                            # regardées, combien démarrées, combien jouées.
+                            "minutes_observed": {
+                                "gws": minutes["n_gw"],
+                                "starts": minutes["n_starts_obs"],
+                                "apps": minutes["n_apps_obs"]}},
             ))
 
     return ProjectionSet(

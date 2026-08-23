@@ -51,6 +51,41 @@ def _xi_lines(xi, teams, title="XI recommandé"):
     return lines
 
 
+def _minutes_lines(xi):
+    """Ce que le moteur a réellement OBSERVÉ pour les titulaires proposés.
+
+    Sans cette ligne, un joueur qui n'a pas joué la GW précédente affiche un
+    P(60+) bas, aucune alerte d'infirmerie, et rien n'explique l'écart. Le fait
+    était calculé et jeté."""
+    absents, remplaces = [], []
+    for r in xi:
+        obs = r.get("minutes_observed") or {}
+        if not obs.get("gws"):
+            continue
+        if not obs.get("apps"):
+            absents.append((r["web_name"], obs))
+        elif not obs.get("starts"):
+            remplaces.append((r["web_name"], obs))
+    if not absents and not remplaces:
+        return []
+    lines = ["\n**Ce qui a été observé, et pas seulement estimé.** Un `P(60+)` "
+             "bas sans alerte d'infirmerie vient presque toujours d'ici : le "
+             "joueur n'a pas joué, le moteur l'a vu, et il rétrécit vers sa "
+             "saison précédente plutôt que de conclure sur un seul match."]
+    if absents:
+        lines.append(
+            "\n- **Zéro minute** sur les GW observées : "
+            + ", ".join(f"{n} (0/{o['gws']} GW)" for n, o in absents)
+            + ". Statut officiel disponible : c'est une absence constatée, pas "
+              "une blessure déclarée. Vérifier la raison avant la deadline.")
+    if remplaces:
+        lines.append(
+            "\n- **Entré en jeu sans démarrer** : "
+            + ", ".join(f"{n} ({o['apps']}/{o['gws']} GW joués, 0 titularisation)"
+                        for n, o in remplaces) + ".")
+    return lines
+
+
 def _bench_lines(bench):
     lines = ["\n## Banc (dans l'ordre)",
              "\n| Rang | Joueur | Poste | EP | P(jouer) |", "|---|---|---|---|---|"]
@@ -185,6 +220,7 @@ def render(rec):
     lines += _xi_lines(rec["xi"], teams,
                        title="XI calculé (non publiable)" if bloque
                        else "XI recommandé")
+    lines += _minutes_lines(rec["xi"])
     lines += _bench_lines(rec["bench"])
     lines += _armband_lines(band)
     lines += _scenario_lines(rec)
@@ -395,6 +431,7 @@ def render_initial(rec):
                      f"{eps} | {r['ep4']:.2f} |")
 
     lines += _xi_lines(rec["xi"], teams, title=f"XI recommandé (GW{rec['gw']})")
+    lines += _minutes_lines(rec["xi"])
     lines += _bench_lines(rec["bench"])
     lines += _armband_lines(band)
 

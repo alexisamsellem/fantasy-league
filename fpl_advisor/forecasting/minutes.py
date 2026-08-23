@@ -123,10 +123,21 @@ def minutes_model(player, history, elements=None, parsed=None, scenario=None):
     r_start_obs, n_gw = _weighted_rate(hist, lambda h: h["started"])
     r_play_obs, _ = _weighted_rate(hist, lambda h: h["minutes"] > 0)
 
+    # Comptages bruts sur la même fenêtre que les taux pondérés. Ils ne servent
+    # à aucun calcul : ils expliquent le résultat. Un titulaire confirmé qui
+    # sort à 55 % de P(60+) sans alerte d'infirmerie n'est pas un bug — c'est
+    # une absence observée, et le lecteur doit pouvoir le voir.
+    window = hist[:n_gw] if n_gw else []
+    n_starts_obs = sum(1 for h in window if h["started"])
+    n_apps_obs = sum(1 for h in window if h["minutes"] > 0)
+
     if n_gw:
         r_start = priors.shrink(r_start_obs * n_gw, n_gw, prior_start, strength)
         r_play = priors.shrink(r_play_obs * n_gw, n_gw, prior_play, strength)
-        basis = f"historique {n_gw} GW rétréci vers {src_start or 'prior de poste'}"
+        basis = (f"historique {n_gw} GW ({n_starts_obs} titularisation"
+                 f"{'s' if n_starts_obs > 1 else ''}, {n_apps_obs} apparition"
+                 f"{'s' if n_apps_obs > 1 else ''}) rétréci vers "
+                 f"{src_start or 'prior de poste'}")
         confidence = "moyenne" if src_start else "faible"
     else:
         r_start, r_play = prior_start, prior_play
@@ -148,6 +159,7 @@ def minutes_model(player, history, elements=None, parsed=None, scenario=None):
     xmin = 90 * p60 + CAMEO_MINUTES * p_cameo
     return {"p_play": p_play, "p60": p60, "p_cameo": p_cameo,
             "p0": 1 - p_play, "xmin": xmin, "basis": basis, "avail": avail,
-            "confidence": confidence, "n_gw": n_gw}
+            "confidence": confidence, "n_gw": n_gw,
+            "n_starts_obs": n_starts_obs, "n_apps_obs": n_apps_obs}
 
 

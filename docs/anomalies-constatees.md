@@ -104,3 +104,36 @@ alerte officielle ou un manque d'historique.
 **Correction** : colonne « Alerte » dans le tableau du XI, portant le statut
 officiel traduit (incertain, blessé, suspendu, indisponible) et la nouvelle
 FPL associée, tronquée à 70 caractères.
+
+
+## A4 — Un P(60+) bas sans alerte d'infirmerie était inexplicable — CORRIGÉ
+
+**Constaté le** 23/08/2026, revue adverse du rapport GW2 réel.
+**Sévérité** : moyenne — aucune erreur de calcul, mais le rapport ne permettait
+pas de distinguer « le modèle a vu une absence » de « le modèle se trompe ».
+
+Sur le rapport GW2, Haaland ressortait à `P(jouer) = 63 %` et `P(60+) = 55 %`
+avec un statut officiel disponible et aucune nouvelle. Rien dans le rapport ne
+disait pourquoi. Reconstitution du calcul : ces deux valeurs correspondent
+exactement à un attaquant à ~34 titularisations la saison précédente ayant
+joué **zéro minute** en GW1 — `shrink(0, 1, 0.839, 3) = 0.63`, puis
+`0.63 × P60_GIVEN_START (0,88) = 0,55`. Le moteur avait raison ; le rapport
+était muet.
+
+**Correction** : `minutes_model` compte désormais les titularisations et les
+apparitions réellement observées sur la fenêtre de récence, les écrit dans la
+base affichée (« historique 1 GW (0 titularisation, 0 apparition) rétréci vers
+saison 2025/26 ») et les transporte dans le contrat sous
+`provenance.minutes_observed`. Le rapport ajoute une section nommant les
+titulaires proposés qui n'ont pas joué, ou qui sont entrés sans démarrer.
+
+`MODEL_VERSION` passe à `forecasting/0.3.0` : le contenu du contrat change,
+même si aucune projection ne bouge.
+
+Cinq tests, dont un qui fige la signature `63 % / 55 %` du titulaire absent
+d'une journée. **Ce test ne dit pas que ces valeurs sont justes** — aucune
+calibration ne l'a montré. Il empêche qu'un changement de priors passe
+inaperçu.
+
+**Ce que ça ne change pas** : aucune constante, aucune projection. Le calcul
+est identique, il est simplement devenu lisible.

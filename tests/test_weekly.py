@@ -422,6 +422,67 @@ class AvancementDeLaCollecteTests(unittest.TestCase):
         self.assertEqual((ok, fail), (0, 1))
 
 
+class MinutesObserveesTests(unittest.TestCase):
+    """Le fait observé doit traverser toute la chaîne : moteur → contrat →
+    rapport. Sans lui, un P(60+) bas sans alerte d'infirmerie est inexplicable
+    pour le lecteur — c'était le cas sur le premier rapport réel."""
+
+    def _minutes(self, gw1, seasons_starts=34, et=4):
+        from fpl_advisor.forecasting import minutes as fm
+        joueur = {"id": 1, "element_type": et, "status": "a",
+                  "chance_of_playing_next_round": None, "team": 1, "now_cost": 140}
+        parsed = {"history_past": {1: [{"season_name": "2025/26",
+                                        "starts": seasons_starts, "minutes":
+                                        seasons_starts * 88}]}}
+        return fm.minutes_model(joueur, [gw1], parsed=parsed)
+
+    def test_les_comptages_observes_sont_exposes_et_ecrits(self):
+        m = self._minutes({"minutes": 0, "started": False})
+        self.assertEqual((m["n_gw"], m["n_starts_obs"], m["n_apps_obs"]), (1, 0, 0))
+        self.assertIn("0 titularisation, 0 apparition", m["basis"])
+        m = self._minutes({"minutes": 90, "started": True})
+        self.assertEqual((m["n_starts_obs"], m["n_apps_obs"]), (1, 1))
+        self.assertIn("1 titularisation, 1 apparition", m["basis"])
+
+    def test_signature_du_titulaire_absent_une_journee(self):
+        """Régression du cas réel GW2 2026/27 : un attaquant à 34
+        titularisations la saison passée, absent de la GW1 et sans alerte
+        officielle, ressort à P(jouer) ≈ 63 % et P(60+) ≈ 55 %.
+
+        Ce test ne dit pas que ces valeurs sont JUSTES — aucune calibration ne
+        l'a montré. Il fige le comportement pour qu'un changement de priors ne
+        passe pas inaperçu."""
+        m = self._minutes({"minutes": 0, "started": False})
+        self.assertAlmostEqual(m["p_play"], 0.63, places=2)
+        self.assertAlmostEqual(m["p60"], 0.55, places=2)
+        self.assertEqual(m["avail"], 1.0)      # aucun flag d'infirmerie
+
+    def test_le_contrat_transporte_le_fait_observe(self):
+        c = _contract()
+        row = c.display_rows(weekly.read_squad(_parsed())[0][:1], c.gw)[0]
+        obs = row["minutes_observed"]
+        self.assertEqual(obs["gws"], c.n_history_gws)
+        self.assertLessEqual(obs["starts"], obs["gws"])
+        self.assertLessEqual(obs["starts"], obs["apps"])
+
+    def test_le_rapport_nomme_les_titulaires_qui_n_ont_pas_joue(self):
+        rec = dict(_rec())
+        rec["xi"] = [dict(p) for p in rec["xi"]]
+        rec["xi"][0]["minutes_observed"] = {"gws": 1, "starts": 0, "apps": 0}
+        rec["xi"][1]["minutes_observed"] = {"gws": 1, "starts": 0, "apps": 1}
+        texte = render(rec)
+        self.assertIn("Zéro minute", texte)
+        self.assertIn(f"{rec['xi'][0]['web_name']} (0/1 GW)", texte)
+        self.assertIn("Entré en jeu sans démarrer", texte)
+        self.assertIn(rec["xi"][1]["web_name"], texte)
+
+    def test_aucune_section_quand_tout_le_monde_a_joue(self):
+        rec = dict(_rec())
+        rec["xi"] = [dict(p, minutes_observed={"gws": 2, "starts": 2, "apps": 2})
+                     for p in rec["xi"]]
+        self.assertNotIn("Zéro minute", render(rec))
+
+
 class RapportHebdomadaireTests(unittest.TestCase):
     def test_sections_completes(self):
         texte = render(_rec())
