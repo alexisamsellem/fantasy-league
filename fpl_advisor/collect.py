@@ -278,6 +278,28 @@ def load_public_snapshot(run_dir, team_reference=TEAM_REFERENCE):
     }
 
 
+def observed_minutes(data_dir="data", gw=None):
+    """{element_id: minutes} d'une GW jouée, pris dans le snapshot le plus
+    récent qui la contient réellement.
+
+    Un fichier `event-<gw>-live.json` existe dès que la GW est ouverte, mais il
+    ne contient que des zéros avant les matchs. On exige donc au moins une
+    minute non nulle : sinon on rend {} et l'appelant refuse de conclure, au
+    lieu de scorer des prédictions contre une journée non jouée."""
+    root = Path(data_dir) / "snapshots"
+    if not root.exists() or gw is None:
+        return {}
+    for run in sorted((d for d in root.iterdir() if d.is_dir()), reverse=True):
+        data = _read(run, f"event-{gw}-live")
+        if not data:
+            continue
+        mins = {int(e["id"]): int((e.get("stats") or {}).get("minutes") or 0)
+                for e in data.get("elements", []) if e.get("id") is not None}
+        if any(mins.values()):
+            return mins
+    return {}
+
+
 def latest_snapshot_dir(data_dir="data"):
     root = Path(data_dir) / "snapshots"
     if not root.exists():

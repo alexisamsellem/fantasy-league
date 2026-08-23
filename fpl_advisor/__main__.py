@@ -7,6 +7,7 @@
   python3 -m fpl_advisor demo           # bout-en-bout sur données synthétiques
   python3 -m fpl_advisor initial-squad  # effectif initial 15 joueurs (sans config)
   python3 -m fpl_advisor initial-bench  # banc d'essai : interne vs baseline publique
+  python3 -m fpl_advisor calibrate      # probabilités figées vs résultats réels
 """
 
 import argparse
@@ -15,11 +16,13 @@ import sys
 from .advise import build_recommendation
 from .api import load_config
 from .collect import (collect_all, collect_public, latest_snapshot_dir,
-                      load_duckdb, load_public_snapshot, load_snapshot)
+                      load_duckdb, load_public_snapshot, load_snapshot,
+                      observed_minutes)
+from .evaluation import calibration
 from .evaluation.bench import build_bench, write_bench
 from .forecasting import ProjectionSet
 from .initial import build_contract, build_from_contract
-from .report import write_initial_report, write_report
+from .report import write_calibration, write_initial_report, write_report
 from .wiring import selection_backend
 
 
@@ -52,7 +55,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fpl_advisor")
     ap.add_argument("command",
                     choices=["collect", "advise", "run", "demo", "initial-squad",
-                             "initial-bench"])
+                             "initial-bench", "calibrate"])
     ap.add_argument("--config", default="config.local.json")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--demo", action="store_true",
@@ -69,12 +72,39 @@ def main(argv=None):
                          "collecte, aucun recalcul de prévision. Réservé à "
                          "initial-squad : le mode hebdomadaire a aussi besoin "
                          "de l'effectif détenu, qui reste hors du contrat")
+    ap.add_argument("--gw", type=int,
+                    help="calibrate : GW à noter (par défaut, la GW de décision "
+                         "du contrat figé)")
     ap.add_argument("--with-history", action="store_true",
                     help="collect/run/initial-squad : collecte aussi les saisons "
                          "passées (un GET public par joueur, long). Nécessaire "
                          "tant que la saison en cours n'a pas assez de journées "
                          "jouées pour porter seule la hiérarchie entre joueurs")
     args = ap.parse_args(argv)
+
+    if args.command == "calibrate":
+        if not args.from_projections:
+            raise SystemExit(
+                "calibrate exige --from-projections FICHIER : on note des "
+                "prédictions FIGÉES AVANT la deadline, jamais des projections "
+                "recalculées après coup. Figer avec :\n"
+                "  python3 -m fpl_advisor run --freeze-projections "
+                "data/projections-GW<n>.json")
+        contract = ProjectionSet.load(args.from_projections)
+        gw = args.gw if args.gw is not None else contract.gw
+        mins = observed_minutes(args.data_dir, gw)
+        res = calibration.assess(contract, mins, gw)
+        path = write_calibration(res, args.data_dir)
+        print(f"Rapport : {path}")
+        for m in res["metriques"].values():
+            if m["competence"] is None:
+                print(f"{m['label']} : non calculable ({m['n']} joueurs)")
+            else:
+                print(f"{m['label']} : Brier {m['brier']:.4f} "
+                      f"(référence {m['brier_reference']:.4f}) — "
+                      f"compétence {m['competence']:+.3f} sur {m['n']} joueurs")
+        print(res["conclusion"])
+        return 0
 
     if args.command == "demo":
         from .demo import build_parsed

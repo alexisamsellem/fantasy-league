@@ -149,6 +149,22 @@ Quand le verdict est **bloqué**, l'équipe ou la décision est toujours calcul�
 technique** (effectif) ou **décision technique** (semaine), et non
 recommandation, dès son titre.
 
+## La calibration, mesurée à part
+
+Le contrôle qualité dit si l'on a le droit de publier. Il ne dit pas si les
+projections sont justes — cela ne se mesure qu'après coup.
+`evaluation/calibration.py` compare un contrat FIGÉ AVANT la deadline aux
+minutes réellement jouées, et rend un score de Brier, un score de compétence
+contre le taux de base, et un tableau de fiabilité par tranche.
+
+Le figeage préalable est la condition de validité : la commande `calibrate`
+exige `--from-projections` et refuse de noter des projections recalculées après
+les matchs. Elle refuse aussi de conclure sur une journée non jouée (fichier
+live rempli de zéros) ou sur un échantillon de moins de 50 joueurs.
+
+Cette couche ne prévoit rien, ne choisit personne, et n'importe pas
+l'optimiseur : elle lit le contrat et des minutes observées, rien d'autre.
+
 ## Ce qui reste volontairement hors périmètre
 
 `--from-projections` n'existe pas pour le mode hebdomadaire. Rejouer une

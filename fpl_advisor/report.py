@@ -558,3 +558,90 @@ def write_initial_report(rec, data_dir="data"):
     path = out / f"GW{rec['gw']}-effectif-initial-{ts}.md"
     path.write_text(render_initial(rec), encoding="utf-8")
     return path
+
+
+# --------------------------------------------------------- calibration ----
+
+def render_calibration(res):
+    """Rapport de calibration. Aucune donnée personnelle : ce document peut
+    être partagé tel quel, contrairement au rapport hebdomadaire."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        f"# Calibration GW{res['gw']} — probabilités annoncées contre réalité",
+        f"\nGénéré le {now}. Projections figées le {res['as_of_projections']} "
+        f"(modèle {res['model_version']}, contrat v{res['contract_version']}), "
+        f"issues de `{res['snapshot_projections']}`. "
+        f"{res['n_ayant_joue']}/{res['n_observes']} joueurs ont joué au moins "
+        "une minute.",
+        "\n**Le point-in-time est la seule chose qui rend ce document valide** : "
+        "les projections ont été figées AVANT la deadline, les résultats lus "
+        "APRÈS les matchs. Rejouer le moteur aujourd'hui sur les données "
+        "d'aujourd'hui ne mesurerait rien.",
+    ]
+    if res.get("synthetic"):
+        lines.append(
+            "\n> **DONNÉES SYNTHÉTIQUES — AUCUNE VALEUR.** Ce rendu prouve que "
+            "la mesure tourne ; il ne dit rien du moteur.")
+
+    lines += [f"\n## Verdict\n\n{res['conclusion']}"]
+
+    for m in res["metriques"].values():
+        lines += [f"\n## {m['label']}", f"\n{m['note'].capitalize()}."]
+        if not m["assez"]:
+            lines.append(f"\nÉchantillon de {m['n']} joueurs — insuffisant pour "
+                         "conclure. Rien n'est interprété ici.")
+        exclus = m["sans_match"] + m["non_observes"]
+        lines += [
+            "\n| Mesure | Valeur | Lecture |", "|---|---|---|",
+            f"| Joueurs évalués | {m['n']} | "
+            f"{exclus} exclus ({m['sans_match']} sans match cette GW, "
+            f"{m['non_observes']} absents des données observées) |",
+            f"| Taux de base observé | {_pct(m['taux_base'] or 0)} | "
+            "la fréquence réelle dans cette population |",
+            f"| Probabilité moyenne annoncée | {_pct(m['annonce_moyenne'] or 0)} | "
+            "un écart avec le taux de base est un biais global |",
+            f"| Score de Brier | {m['brier']:.4f} | plus bas est meilleur |"
+            if m["brier"] is not None else "| Score de Brier | — | |",
+            f"| Brier de référence | {m['brier_reference']:.4f} | "
+            "annoncer le taux de base à tout le monde |"
+            if m["brier_reference"] is not None else "| Brier de référence | — | |",
+            f"| **Score de compétence** | **{m['competence']:+.3f}** | "
+            "**négatif = pire que ne rien savoir** |"
+            if m["competence"] is not None else "| Score de compétence | — | |",
+        ]
+        lines += [
+            "\n| Tranche annoncée | Joueurs | Annoncé | Observé | Écart |",
+            "|---|---|---|---|---|",
+        ]
+        for b in m["fiabilite"]:
+            if not b["n"]:
+                lines.append(f"| {_pct(b['lo'])} – {_pct(b['hi'])} | 0 | — | — "
+                             "| tranche inutilisée |")
+                continue
+            lines.append(
+                f"| {_pct(b['lo'])} – {_pct(b['hi'])} | {b['n']} | "
+                f"{_pct(b['annonce'])} | {_pct(b['observe'])} | "
+                f"{b['ecart']:+.0%} |")
+        lines.append(
+            "\nÉcart positif : le moteur a été trop prudent sur cette tranche. "
+            "Écart négatif : trop confiant. Une tranche à faible effectif ne "
+            "dit rien — regarder la colonne « Joueurs » avant de conclure.")
+
+    lines += [
+        "\n## Ce que ce document ne dit pas",
+        "\nUne seule journée ne démontre aucune calibration : elle peut "
+        "seulement révéler un défaut grossier. La preuve demande la répétition "
+        "sur plusieurs GW. Aucun paramètre du moteur ne doit être ajusté sur "
+        "ce seul résultat — corriger un défaut exige de le démontrer sur les "
+        "données ET de le figer par un test de régression.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_calibration(res, data_dir="data"):
+    out = Path(data_dir) / "reports"
+    out.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = out / f"GW{res['gw']}-calibration-{ts}.md"
+    path.write_text(render_calibration(res), encoding="utf-8")
+    return path

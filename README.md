@@ -101,6 +101,41 @@ classement de pré-saison défendable : sans elle, les priors sont plats par
 poste et le rapport le signale en confiance « faible ». Détail complet dans
 `docs/contrat-de-donnees.md`.
 
+## Mesurer la calibration — le seul juge du système
+
+Un effectif qui marque beaucoup peut n'être que chanceux. Des probabilités bien
+calibrées, elles, se vérifient : quand le moteur dit « 60 % », il faut
+qu'environ 60 % de ces joueurs jouent vraiment 60 minutes.
+
+Le protocole tient en deux commandes, séparées par les matchs :
+
+```bash
+# AVANT la deadline — fige les prédictions
+python3 -m fpl_advisor run --freeze-projections data/projections-GW2.json
+
+# APRÈS les matchs — recollecte, puis note les prédictions figées
+python3 -m fpl_advisor run
+python3 -m fpl_advisor calibrate --from-projections data/projections-GW2.json
+```
+
+Le figeage préalable n'est pas une commodité, c'est ce qui rend la mesure
+valide : rejouer le moteur après coup sur les données d'après coup ne mesure
+rien. `calibrate` refuse d'ailleurs de tourner sans `--from-projections`.
+
+Le rapport (`data/reports/GW<n>-calibration-<horodatage>.md`, sans aucune donnée
+personnelle) donne, pour `P(60+)` et `P(jouer)` :
+
+- le **score de Brier**, et surtout le **score de compétence** contre une
+  référence explicite — annoncer le taux de base à tout le monde. **Un score
+  négatif signifie que le moteur fait pire que ne rien savoir** ;
+- un **tableau de fiabilité** par tranche de probabilité, qui dit *où* le moteur
+  se trompe : trop confiant sur les titulaires, trop prudent sur les remplaçants ;
+- le décompte des exclus — joueurs sans match cette GW, joueurs absents des
+  données observées — jamais comptés comme des absences.
+
+Une journée ne démontre rien : elle peut seulement révéler un défaut grossier.
+Et aucun paramètre ne doit être ajusté sur un seul résultat.
+
 ### Ce que valent ces projections
 
 La couche de projection rétrécit chaque estimation vers un prior explicite
