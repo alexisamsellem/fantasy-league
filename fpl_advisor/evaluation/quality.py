@@ -372,7 +372,7 @@ def _xi_agreement(facts):
     state = ACCEPTED if overlap >= XI_OVERLAP_WARN else WARNING
     return Check("stabilite_xi", state,
                  f"recouvrement minimal du XI entre scénarios : {overlap}/{size} "
-                 f"(seuil d'alerte {XI_OVERLAP_WARN}/{size})")
+                 f"(alerte en dessous de {XI_OVERLAP_WARN}/{size})")
 
 
 def assess_weekly(contract, facts=None, now=None):
