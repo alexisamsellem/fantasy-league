@@ -29,6 +29,84 @@ Relie toujours le résultat final à l'objectif de départ : proposer une équip
 
 Ne présente pas l'architecture comme un catalogue de fichiers, modules, métriques ou décisions indépendantes. Les noms de fichiers et les détails d'implémentation viennent après l'explication du rôle causal de la composante.
 
+## Représentation visuelle des explications
+
+Quand le sujet comporte au moins trois étapes, composants reliés ou transformations successives, accompagne l'explication d'une représentation visuelle simple.
+
+La représentation principale doit suivre une seule direction de lecture, de préférence de gauche à droite pour une chaîne courte ou de haut en bas pour une explication détaillée :
+
+```text
+OBJECTIF
+   ↓
+[ Entrée ] → [ Transformation ] → [ Sortie ]
+                                      ↓
+                            entrée de l'étape suivante
+```
+
+Pour le pipeline FPL complet, partir de cette forme :
+
+```text
+Données publiques datées
+          ↓
+Estimation du temps de jeu
+          ↓
+Estimation de la production par minute
+          ↓
+Projections sur quatre Gameweeks
+          ↓
+Contrôle de qualité
+          ↓
+Optimisation sous contraintes FPL
+          ↓
+Équipe candidate + niveau de confiance
+          ↓
+Décision humaine
+```
+
+Dans une réponse Markdown, privilégier un petit diagramme Mermaid lorsque les relations sont plus faciles à comprendre visuellement qu'en prose. Le diagramme doit rester lisible seul : utiliser des libellés concrets, des flèches orientées et, si nécessaire, une courte mention sur la flèche pour expliquer ce qui est transmis.
+
+Exemple de forme attendue :
+
+```mermaid
+flowchart TD
+    A["Snapshot : joueurs, prix, historique, calendrier"]
+    B["Prévision du temps de jeu : P(60+)"]
+    C["Prévision des points sur 4 GW"]
+    D["Contrat de projections figé"]
+    E{"Porte qualité"}
+    F["Optimisation : budget, postes, clubs"]
+    G["Équipe candidate de 15 joueurs"]
+    H["Validation humaine"]
+
+    A -->|historique disponible| B
+    B -->|minutes probables| C
+    C -->|projection par joueur| D
+    D --> E
+    E -->|calcul autorisé| F
+    F --> G
+    E -->|statut de confiance| G
+    G --> H
+```
+
+Après le visuel, expliquer la chaîne dans le même ordre. Ne pas créer un deuxième plan de lecture concurrent.
+
+Pour les détails techniques, utiliser une divulgation progressive :
+
+1. montrer d'abord le flux principal en 5 à 8 blocs maximum ;
+2. zoomer seulement sur l'étape utile ;
+3. montrer à l'intérieur de ce zoom les sous-étapes causales ;
+4. revenir explicitement au pipeline principal et expliquer ce que le zoom change pour la suite.
+
+Quand un état doit être communiqué, distinguer visuellement et textuellement trois catégories stables :
+
+- **construit** — le composant existe et respecte ses tests ;
+- **à vérifier** — il fonctionne techniquement, mais sa qualité réelle reste à mesurer ;
+- **bloquant** — il empêche de présenter le résultat comme une recommandation.
+
+Ne jamais utiliser la couleur comme seul moyen de distinguer ces états : ajouter toujours le libellé et, si utile, un symbole comme `✓`, `…` ou `✕`.
+
+Éviter les diagrammes décoratifs, les cartes nombreuses, les mosaïques de métriques, les branches secondaires affichées trop tôt et les schémas où toutes les composantes sont reliées à toutes les autres. Un visuel doit rendre le lien causal plus évident, pas seulement rendre la réponse plus jolie.
+
 ## Niveau de technicité
 
 Vulgariser ne signifie pas retirer la technique. Quand un concept technique devient nécessaire — prior, shrinkage, calibration, Brier score, contrat sérialisable, inversion de dépendance, optimum local ou fuite temporelle — explique :
