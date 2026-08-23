@@ -1,4 +1,4 @@
-# Anomalies constatées, non corrigées
+# Anomalies constatées
 
 Défauts fonctionnels repérés en marge d'un autre chantier. Ils sont consignés
 ici plutôt que corrigés au passage : une correction silencieuse dans un commit
@@ -45,3 +45,62 @@ un historique de titulaire, et le capitaine de la démo reste au-dessus du seuil
 **Ce que ça ne change pas** : aucun chiffre du chemin de production, aucune
 donnée réelle. La démo reste utilisable pour ce à quoi elle sert — exercer les
 invariants — et son rapport porte déjà l'avertissement « démo synthétique ».
+
+
+## A2 — Le gain d'un transfert était mesuré sur le mauvais objectif — CORRIGÉ
+
+**Constaté le** 23/08/2026, en revue adverse du premier rapport hebdomadaire
+réel (GW2 2026/27).
+**Présent depuis** le commit `222a0b0` (V0).
+**Sévérité** : haute — affectait la seule décision chiffrée du mode
+hebdomadaire, sur le chemin de production.
+
+`optimization/transfers.py` comparait les points individuels des deux
+joueurs :
+
+```python
+delta = ep3(inn["id"]) - ep3(out["id"])
+```
+
+Or un remplaçant ne rapporte rien à l'équipe. Sortir un joueur de banc ne rend
+pas ses points « manquants », et l'entrant n'ajoute que l'écart avec le
+titulaire qu'il déplace. Le gain annoncé était donc surestimé pour tout échange
+dont le sortant était sur le banc, d'autant plus que ce sortant avait une faible
+probabilité de jouer.
+
+Effet mesuré sur le rapport GW2 réel : `Colwill → Kayode` annoncé à **+8,04 pts
+sur 3 GW**, alors que Colwill était sur le banc à `EP = 0,82` et `P(jouer) =
+41 %`. Le vrai gain se compte contre le quatrième défenseur du XI, pas contre
+Colwill.
+
+**Correction** : `transfer_scan` évalue désormais chaque échange par la somme,
+sur l'horizon, du **meilleur XI** avant et après. Deux chiffres sont exposés —
+`delta3` (gain sur le XI, celui qui décide) et `delta3_brut` (écart individuel,
+conservé pour rendre le biais visible dans le rapport). Repli explicite sur
+l'écart individuel si l'effectif ne permet aucune formation légale, avec un
+avertissement dans le rapport (`xi_based: False`).
+
+Quatre tests de régression dans `tests/test_advisor.py`
+(`TransfertSurLeXiTests`), dont un cas décisif : un échange de banc annoncé à
++7,2 pts par l'ancienne règle, ramené à +0,9 par la nouvelle, qui bascule donc
+de « transférer » à « conserver ».
+
+**Ce que ça ne change pas** : aucune projection. La correction porte sur
+l'objectif de l'optimiseur, pas sur la prévision. Les échanges dont le sortant
+est titulaire donnent exactement le même chiffre qu'avant — un test le vérifie.
+
+## A3 — Le statut d'infirmerie n'était pas affiché dans le XI — CORRIGÉ
+
+**Constaté le** 23/08/2026, même revue.
+**Sévérité** : moyenne — aucune erreur de calcul, mais l'information la plus
+décisive d'un rapport hebdomadaire restait invisible.
+
+Le moteur lit `status` et `news` de chaque joueur, les transporte dans le
+contrat, et les utilise pour calculer `P(jouer)` — mais le tableau du XI ne les
+montrait pas. Un joueur signalé incertain apparaissait seulement par un
+`P(60+)` plus bas, sans que le lecteur puisse savoir si la cause était une
+alerte officielle ou un manque d'historique.
+
+**Correction** : colonne « Alerte » dans le tableau du XI, portant le statut
+officiel traduit (incertain, blessé, suspendu, indisponible) et la nouvelle
+FPL associée, tronquée à 70 caractères.

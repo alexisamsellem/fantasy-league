@@ -104,6 +104,86 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(self._setup(1.0)["decision"], "conserver")
 
 
+class TransfertSurLeXiTests(unittest.TestCase):
+    """Le gain d'un transfert se mesure sur le meilleur XI, pas sur les points
+    du joueur vendu.
+
+    Sortir un remplaçant qui ne joue pas ne rend pas ses points « manquants » :
+    il n'en rapportait aucun. Comparer les points individuels surestime donc
+    tout échange dont le sortant est sur le banc — et peut recommander un
+    transfert qui n'ajoute presque rien au onze."""
+
+    EPS = {1: [2.5, 0.2], 2: [2.6, 2.4, 2.2, 2.0, 0.1],
+           3: [3.0, 2.9, 2.8, 2.7, 2.6], 4: [3.2, 3.1, 3.0]}
+    GWS = (1, 2, 3)
+
+    def _squad(self):
+        rows, pid = [], 0
+        for et, eps in self.EPS.items():
+            for i, ep in enumerate(eps):
+                pid += 1
+                rows.append({"id": pid, "element_type": et, "ep": ep,
+                             "p_play": 1.0, "p0": 0.0, "team": pid % 6 + 1,
+                             "now_cost": 50, "web_name": f"J{pid}", "_ep": ep})
+        return rows
+
+    def _scan(self, ep_entrant):
+        squad = self._squad()
+        faible = min(squad, key=lambda r: r["_ep"])       # le DEF à 0.1, sur le banc
+        self.assertEqual(faible["element_type"], 2)
+        entrant = {"id": 99, "element_type": 2, "ep": ep_entrant, "p_play": 1.0,
+                   "p0": 0.0, "team": 6, "now_cost": 50, "web_name": "IN",
+                   "_ep": ep_entrant}
+        eps = {r["id"]: {g: r["_ep"] for g in self.GWS} for r in squad + [entrant]}
+        scan = team.transfer_scan(squad, [entrant], eps, bank=0)
+        cnd = next(c for c in scan["candidates"] if c["out"]["id"] == faible["id"])
+        return scan, cnd
+
+    def test_le_gain_xi_est_bien_inferieur_a_l_ecart_individuel(self):
+        scan, cnd = self._scan(3.0)
+        self.assertTrue(scan["xi_based"])
+        # Individuel : (3.0 − 0.1) × 3 GW = 8.7. Sur le XI, l'entrant ne
+        # déplace que le 3e défenseur (2.4 → 2.6+2.5+... ) : +0.8 par GW.
+        self.assertAlmostEqual(cnd["delta3_brut"], 8.7, places=6)
+        self.assertAlmostEqual(cnd["delta3"], 2.4, places=6)
+        self.assertLess(cnd["delta3"], cnd["delta3_brut"] / 3)
+
+    def test_un_echange_de_banc_ne_declenche_plus_le_transfert(self):
+        """Cas décisif : l'ancienne règle recommandait de transférer (7.2 pts
+        annoncés), la nouvelle voit +0.9 sur le XI et conserve."""
+        scan, cnd = self._scan(2.5)
+        self.assertGreater(cnd["delta3_brut"], team.TRANSFER_THRESHOLD)
+        self.assertLess(cnd["delta3"], team.TRANSFER_THRESHOLD)
+        self.assertEqual(scan["decision"], "conserver")
+
+    def test_un_sortant_titulaire_donne_le_meme_gain_des_deux_facons(self):
+        """Quand le sortant joue, les deux mesures coïncident : la correction
+        ne déplace que les échanges de banc."""
+        squad = self._squad()
+        titulaire = max((r for r in squad if r["element_type"] == 2),
+                        key=lambda r: r["_ep"])
+        entrant = {"id": 99, "element_type": 2, "ep": 4.0, "p_play": 1.0,
+                   "p0": 0.0, "team": 6, "now_cost": 50, "web_name": "IN",
+                   "_ep": 4.0}
+        eps = {r["id"]: {g: r["_ep"] for g in self.GWS} for r in squad + [entrant]}
+        # Tous les couples, pas seulement le top 3 : l'échange le mieux noté
+        # reste celui qui sort le remplaçant.
+        scan = team.transfer_scan(squad, [entrant], eps, bank=0, max_candidates=99)
+        cnd = next(c for c in scan["candidates"] if c["out"]["id"] == titulaire["id"])
+        self.assertAlmostEqual(cnd["delta3"], cnd["delta3_brut"], places=6)
+
+    def test_effectif_incomplet_retombe_sur_l_ecart_individuel(self):
+        """Aucune formation légale possible : on le dit au lieu de rendre 0."""
+        out = {"id": 1, "element_type": 4, "team": 1, "now_cost": 60,
+               "web_name": "OUT", "ep": 2.0, "p_play": 1.0, "p0": 0.0}
+        inn = {"id": 2, "element_type": 4, "team": 2, "now_cost": 60,
+               "web_name": "IN", "ep": 5.0, "p_play": 1.0, "p0": 0.0}
+        eps = {1: {3: 2.0}, 2: {3: 5.0}}
+        scan = team.transfer_scan([out], [inn], eps, bank=0)
+        self.assertFalse(scan["xi_based"])
+        self.assertAlmostEqual(scan["candidates"][0]["delta3"], 3.0, places=6)
+
+
 class ExposureTests(unittest.TestCase):
     def test_capitaine_compte_double(self):
         parsed = {

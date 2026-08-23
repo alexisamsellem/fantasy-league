@@ -15,16 +15,36 @@ def _pct(x):
     return f"{100 * x:.0f} %"
 
 
+STATUTS = {"a": "", "d": "incertain", "i": "blessé", "s": "suspendu",
+           "n": "indisponible", "u": "parti"}
+
+
+def _alerte(r):
+    """Statut officiel FPL et nouvelle associée, en une cellule.
+
+    Un joueur signalé incertain est le fait le plus décisif d'un rapport
+    hebdomadaire : il était lu par le moteur mais n'apparaissait nulle part
+    dans le tableau du XI."""
+    mot = STATUTS.get(r.get("status", "a"), r.get("status", ""))
+    news = (r.get("news") or "").strip().replace("|", "/")
+    if not mot and not news:
+        return "—"
+    if len(news) > 70:
+        news = news[:67] + "…"
+    return " ".join(x for x in (f"**{mot}**" if mot else "", news) if x)
+
+
 def _row(r, teams):
     return (f"| {r['web_name']} | {POS[r['element_type']]} | "
             f"{teams.get(r['team'], r['team'])} | {r['ep']:.2f} | "
-            f"{_pct(r['p_play'])} | {_pct(r['p60'])} | {r['ep_if_start']:.2f} |")
+            f"{_pct(r['p_play'])} | {_pct(r['p60'])} | {r['ep_if_start']:.2f} | "
+            f"{_alerte(r)} |")
 
 
 def _xi_lines(xi, teams, title="XI recommandé"):
     lines = [f"\n## {title}",
-             "\n| Joueur | Poste | Club | EP | P(jouer) | P(60+) | EP si 90' |",
-             "|---|---|---|---|---|---|---|"]
+             "\n| Joueur | Poste | Club | EP | P(jouer) | P(60+) | EP si 90' | Alerte |",
+             "|---|---|---|---|---|---|---|---|"]
     order = {1: 0, 2: 1, 3: 2, 4: 3}
     for r in sorted(xi, key=lambda x: (order[x["element_type"]], -x["ep"])):
         lines.append(_row(r, teams))
@@ -179,11 +199,26 @@ def render(rec):
         f"Banque disponible : {rec['bank'] / 10:.1f} M£.",
     ]
     if tr["candidates"]:
-        lines += ["\n| Sortant | Entrant | Δ EP (3 GW) | Banque après |",
-                  "|---|---|---|---|"]
+        lines += [f"\n| Sortant | Entrant | Gain sur le XI ({tr['horizon']} GW) | "
+                  "Écart individuel | Banque après |",
+                  "|---|---|---|---|---|"]
         for cnd in tr["candidates"]:
             lines.append(f"| {cnd['out']['web_name']} | {cnd['in']['web_name']} | "
-                         f"+{cnd['delta3']:.2f} | {cnd['cost_after'] / 10:.1f} M£ |")
+                         f"+{cnd['delta3']:.2f} | "
+                         f"+{cnd.get('delta3_brut', cnd['delta3']):.2f} | "
+                         f"{cnd['cost_after'] / 10:.1f} M£ |")
+        lines.append(
+            "\nLes deux colonnes ne mesurent pas la même chose. **Le gain sur "
+            "le XI décide** : c'est ce que l'échange ajoute au meilleur onze de "
+            "chaque GW. L'écart individuel compare les points des deux joueurs, "
+            "sans regarder qui joue. Quand le sortant est sur le banc, le second "
+            "est plus grand que le premier — il compte des points que ce joueur "
+            "ne rapportait de toute façon pas. Un écart marqué entre les deux "
+            "colonnes signale un échange de banc, pas un renfort du XI.")
+        if not tr.get("xi_based", True):
+            lines.append(
+                "\n> Effectif incomplet : aucune formation légale n'a pu être "
+                "construite, le gain affiché retombe sur l'écart individuel.")
     else:
         lines.append("\nAucun échange à gain positif identifié dans la présélection.")
     lines += [
