@@ -136,11 +136,33 @@ Sunderland,52,48,46,2
 - Un club présent dans le bootstrap mais **absent du fichier** est traité comme
   promu (priors `PROMOTED_ATTACK` / `PROMOTED_DEFENCE`).
 
-Source gratuite adaptée : les CSV saison de `football-data.co.uk`
-(`mmz4281/<saison>/E0.csv` pour la Premier League, `E1.csv` pour le
-Championship), agrégés par équipe. Aucune source payante n'est requise et
-aucune n'est utilisée.
+### Comment le produire, sans se tromper de noms
 
+**Le piège** : le moteur apparie sur `name` ou `short_name` du bootstrap FPL,
+sans tolérance. Un club mal nommé n'échoue pas — il tombe en silence dans le
+panier « promu » et reçoit un prior générique. Un fichier à moitié faux est donc
+**pire** qu'un fichier absent : absent, au moins, c'est signalé.
+
+Le script fait l'appariement à la source, le montre, et refuse d'écrire quand
+il n'est pas sûr :
+
+```bash
+# 1. Télécharger le CSV Premier League de la saison PRÉCÉDENTE
+#    https://www.football-data.co.uk/englandm.php  →  mmz4281/<saison>/E0.csv
+# 2. Le convertir (exige un snapshot existant, pour lire les noms FPL)
+python3 scripts/build_team_priors.py --e0 ~/Downloads/E0.csv
+```
+
+Sortie attendue : `N/20 clubs FPL appariés` et la liste des clubs sans
+référence. **Trois clubs sans référence, ce sont les promus — c'est normal.
+Au-delà de quatre, ce sont des noms qui ne correspondent pas.** Le script le
+dit, et le contrôle qualité `reference_equipe` le répète dans chaque rapport.
+
+Les rapprochements douteux (nom proche mais pas identique) sont listés et
+bloquent l'écriture ; les valider demande `--accepter-approximations`, après
+les avoir lus.
+
+Aucune source payante n'est requise et aucune n'est utilisée.
 `docs/exemple-team_priors.csv` donne le format sur deux lignes fictives.
 
 ## 4. Ce que le contrat NE couvre pas

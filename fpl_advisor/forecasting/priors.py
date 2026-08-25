@@ -120,7 +120,7 @@ def availability_report(parsed):
     hist = parsed.get("history_past") or {}
     rows = []
     for c in DATA_CONTRACT:
-        key = c["key"]
+        key, extra = c["key"], {}
         if key == "bootstrap_core":
             ok = bool(elements)
             detail = f"{len(elements)} joueurs"
@@ -141,16 +141,26 @@ def availability_report(parsed):
                 else "AUCUNE saison passée collectée"
         elif key == "team_reference":
             ref = parsed.get("team_ref")
-            ok = bool(ref)
-            detail = f"{len(ref)} clubs référencés" if ok else "fichier absent"
+            # Le fichier de référence n'échoue jamais bruyamment : un club dont
+            # le nom ne correspond pas au bootstrap tombe en silence dans le
+            # panier « promu » et reçoit un prior générique. Compter les
+            # appariements réels est le seul moyen de rendre ce défaut visible.
+            apparies = sum(1 for v in (ref or {}).values() if not v["promoted"])
+            promus = len(ref or {}) - apparies
+            ok = apparies > 0
+            detail = (f"{apparies}/{len(ref)} clubs appariés, {promus} traités "
+                      "comme promus") if ref else "fichier absent"
+            extra = {"apparies": apparies, "promus": promus}
         elif key == "ep_next":
             ok = _has_field(elements, "ep_next", nonzero=True)
             detail = "ep_next non nul présent" if ok else "ep_next absent ou nul"
         else:                                     # pragma: no cover - garde-fou
             ok, detail = False, "inconnu"
-        rows.append({"key": key, "present": ok, "required": c["required"],
-                     "source": c["source"], "used_for": c["used_for"],
-                     "without": c["without"], "detail": detail})
+        row = {"key": key, "present": ok, "required": c["required"],
+               "source": c["source"], "used_for": c["used_for"],
+               "without": c["without"], "detail": detail}
+        row.update(extra)
+        rows.append(row)
     return rows
 
 

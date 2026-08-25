@@ -52,6 +52,8 @@ XI_OVERLAP_WARN = 10             # sur 11 titulaires
 SQUAD_SIZE = 15
 LIVE_GWS_REPLACING_HISTORY = 3   # journées jouées à partir desquelles la saison
                                  # en cours porte seule la hiérarchie
+MAX_PROMUS_PLAUSIBLE = 4         # une saison de PL n'en promeut que 3 ; au-delà,
+                                 # ce sont des noms qui ne correspondent pas
 
 
 @dataclass
@@ -113,6 +115,29 @@ def _data_coverage(contract):
     if absent:
         detail += f" ; sources absentes : {', '.join(absent)}"
     return Check("couverture_donnees", state, detail)
+
+
+def _team_reference(contract):
+    """Le fichier de référence d'équipe est-il réellement apparié ?
+
+    Il n'échoue jamais bruyamment : un club dont le nom ne correspond pas au
+    bootstrap tombe en silence dans le panier « promu » et reçoit un prior
+    générique. Un fichier à moitié faux est pire qu'un fichier absent — absent,
+    au moins, c'est signalé par `couverture_donnees`."""
+    row = next((r for r in contract.availability
+                if r["key"] == "team_reference"), None)
+    if row is None or not row.get("present"):
+        return None                      # absence déjà couverte ailleurs
+    promus = row.get("promus")
+    if promus is None:
+        return None
+    state = WARNING if promus > MAX_PROMUS_PLAUSIBLE else ACCEPTED
+    detail = f"{row.get('apparies')} clubs appariés, {promus} traités comme promus"
+    if state == WARNING:
+        detail += (f" — plus de {MAX_PROMUS_PLAUSIBLE} : une saison de Premier "
+                   "League n'en promeut que 3, ce sont probablement des noms qui "
+                   "ne correspondent pas au bootstrap FPL")
+    return Check("reference_equipe", state, detail)
 
 
 def _weak_fallbacks(contract):
@@ -221,7 +246,8 @@ def assess(contract, min_overlap=None, squad_facts=None, baseline_overlap=None,
     facts = squad_facts or {}
     checks = [_data_coverage(contract), _weak_fallbacks(contract),
               _stability(min_overlap)]
-    for maybe in (_flat_priors(contract, squad_ids or []), _legality(facts),
+    for maybe in (_team_reference(contract),
+                  _flat_priors(contract, squad_ids or []), _legality(facts),
                   _budget(facts), _captain(facts), _baseline(baseline_overlap)):
         if maybe is not None:
             checks.append(maybe)
@@ -387,8 +413,8 @@ def assess_weekly(contract, facts=None, now=None):
     checks = [_data_coverage_weekly(contract), _weak_fallbacks(contract),
               _freshness(contract, now), _deadline(contract, now)]
     n = facts.get("n_scenarios")
-    for maybe in (_squad_readable(facts), _squad_up_to_date(facts),
-                  _captain(facts),
+    for maybe in (_team_reference(contract), _squad_readable(facts),
+                  _squad_up_to_date(facts), _captain(facts),
                   _agreement("stabilite_capitaine", facts.get("captain_agree"), n,
                              "identité du capitaine"),
                   _agreement("stabilite_transfert", facts.get("decision_agree"), n,

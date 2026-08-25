@@ -122,6 +122,7 @@ Contrôles du mode hebdomadaire (`fallbacks_faibles` est commun ;
 | `fraicheur_snapshot` | la collecte a plus de 72 heures (avertissement dès 24) |
 | `effectif_lisible` | un joueur détenu est absent du contrat (radié, identifiant inconnu) |
 | `effectif_a_jour` | un transfert est déjà enregistré pour la GW visée : les picks publics lus datent de la GW close, l'effectif a changé depuis |
+| `reference_equipe` | (avertissement seulement, les deux modes) plus de 4 clubs traités comme promus : les noms du fichier de référence ne correspondent probablement pas au bootstrap |
 | `capitaine_plausible` | capitaine sous 30 % de chances de jouer 60 minutes |
 | `stabilite_capitaine` | moins de 2 scénarios sur 3 désignent le même capitaine |
 | `stabilite_transfert` | moins de 2 scénarios sur 3 concluent au même arbitrage |
