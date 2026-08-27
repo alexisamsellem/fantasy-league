@@ -509,3 +509,118 @@ class RapportHebdomadaireTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _ligne(pid, et, cost, ep, team=None, gws=(1, 2, 3)):
+    """Ligne de contrat minimale, telle que l'optimisation la consomme."""
+    return {"id": pid, "web_name": f"J{pid}", "element_type": et,
+            "team": team if team is not None else pid, "now_cost": cost,
+            "p_play": 1.0, "p60": 1.0, "p0": 0.0, "minutes_basis": "",
+            "minutes_confidence": "moyenne", "eps": {g: ep for g in gws},
+            "ep": ep, "ep_if_start": ep, "status": "a", "news": "",
+            "minutes_observed": {}, "rate_basis": "", "defcon_basis": "",
+            "components": {}, "n_fixtures": 1,
+            "ep_by_gw": {g: ep for g in gws},
+            "ep_if_start_by_gw": {g: ep for g in gws},
+            "components_by_gw": {}, "ep4": ep * len(gws)}
+
+
+def _marche_avec_un_renfort():
+    """15 joueurs détenus (2-5-5-3) tous à 2,0 pts, plus un milieu à 9,0 pts
+    au même prix : l'échange est évident, et l'entrant DOIT entrer dans le XI.
+
+    Le sortant choisi est un milieu qui était sur le banc — c'est précisément
+    le cas où le rapport montrait un onze faux."""
+    squad, pid = [], 1
+    for et, quota in ((1, 2), (2, 5), (3, 5), (4, 3)):
+        for _ in range(quota):
+            squad.append(_ligne(pid, et, 40, 2.0))
+            pid += 1
+    renfort = _ligne(99, 3, 40, 9.0, team=99)
+    return squad, renfort
+
+
+class ApresTransfertTests(unittest.TestCase):
+
+    """Régression A6 — le XI affiché doit être celui qu'on alignera.
+
+    Le rapport montrait le onze de l'effectif AVANT l'échange à côté d'un
+    transfert recommandé : le joueur vendu restait sur le banc affiché,
+    l'entrant n'apparaissait nulle part, et la formation pouvait être fausse.
+    """
+
+    def _decision(self):
+        squad, renfort = _marche_avec_un_renfort()
+        d = opt_weekly.weekly_decision(squad + [renfort],
+                                       [r["id"] for r in squad], 0, [1, 2, 3])
+        self.assertEqual(d["decision"], "transférer")
+        return d
+
+    def test_un_transfert_recommande_porte_son_XI(self):
+        self.assertIsNotNone(self._decision()["apres_transfert"])
+
+    def test_le_joueur_vendu_disparait_de_l_equipe_affichee(self):
+        ap = self._decision()["apres_transfert"]
+        apres_ids = {p["id"] for p in ap["xi"]} | {p["id"] for p in ap["bench"]}
+        self.assertNotIn(ap["out"]["id"], apres_ids,
+                         "le joueur vendu est encore affiché après l'échange")
+        self.assertIn(ap["in"]["id"], apres_ids,
+                      "l'entrant n'apparaît nulle part après l'échange")
+        self.assertEqual(len(apres_ids), 15)
+
+    def test_l_entrant_prend_bien_une_place_dans_le_onze(self):
+        """Le cœur du défaut : un entrant nettement meilleur que le sortant
+        joue, et il déplace quelqu'un. Le XI d'avant ne pouvait pas le dire."""
+        d = self._decision()
+        ap = d["apres_transfert"]
+        self.assertIn(ap["in"]["id"], {p["id"] for p in ap["xi"]})
+        self.assertEqual(ap["xi_in"], [ap["in"]["id"]])
+        self.assertEqual(len(ap["xi_out"]), 1)
+        avant = sum(p["eps"][1] for p in d["xi"])
+        apres = sum(p["eps"][1] for p in ap["xi"])
+        self.assertGreater(apres, avant)
+
+    def test_le_XI_d_apres_est_une_formation_legale(self):
+        xi = self._decision()["apres_transfert"]["xi"]
+        self.assertEqual(len(xi), 11)
+        n = {t: sum(1 for p in xi if p["element_type"] == t) for t in (1, 2, 3, 4)}
+        self.assertEqual(n[1], 1)
+        self.assertTrue(3 <= n[2] <= 5 and 2 <= n[3] <= 5 and 1 <= n[4] <= 3, n)
+
+    def test_conserver_ne_produit_aucun_second_XI(self):
+        """Sans transfert recommandé, il n'y a qu'un seul onze — afficher un
+        second serait inventer une décision."""
+        c = _contract()
+        squad_ids, _ = weekly.read_squad(_parsed())
+        rows = c.rows_for("central")
+        # Banque nulle et marché vide : aucun échange possible, donc conserver.
+        d = opt_weekly.weekly_decision(rows, squad_ids, 0, list(c.horizon),
+                                       per_position=0)
+        self.assertEqual(d["decision"], "conserver")
+        self.assertIsNone(d["apres_transfert"])
+
+    def test_le_rapport_montre_les_deux_onze(self):
+        """Rendu complet, sur un `rec` fabriqué à partir de la décision
+        déterministe ci-dessus : le rapport doit porter les DEUX onze."""
+        d = self._decision()
+        ap = d["apres_transfert"]
+        # `weekly.build_from_contract` remplace les identifiants de `xi_in` /
+        # `xi_out` par des lignes d'affichage ; on refait ici la même
+        # conversion, sur les mêmes lignes.
+        par_id = {r["id"]: r for r in d["squad"] + [ap["in"]]}
+        ap = dict(ap, xi_in=[par_id[i] for i in ap["xi_in"]],
+                  xi_out=[par_id[i] for i in ap["xi_out"]])
+        rec = dict(_rec())
+        for cle in ("xi", "bench", "armband", "transfer", "squad",
+                    "horizon_eps"):
+            rec[cle] = d[cle]
+        rec["apres_transfert"] = ap
+        rec["teams"] = {p["team"]: f"C{p['team']}" for p in d["squad"]}
+        rec["teams"][ap["in"]["team"]] = "C99"
+        md = render(rec)
+        self.assertIn("SI TU CONSERVES", md)
+        self.assertIn("SI TU TRANSFÈRES", md)
+        self.assertIn("Banc après transfert", md)
+        apres = md.split("SI TU TRANSFÈRES", 1)[1].split("## Capitaine", 1)[0]
+        self.assertNotIn(f"| {ap['out']['web_name']} |", apres)
+        self.assertIn(ap["in"]["web_name"], apres)

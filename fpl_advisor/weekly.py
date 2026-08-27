@@ -103,7 +103,14 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
     # provenance des taux, statut, nouvelles) ; les lignes de décision ne
     # portent que ce dont l'optimiseur a besoin. On rattache les premières aux
     # secondes sans rejouer la décision : mêmes joueurs, même ordre.
-    display = {r["id"]: r for r in contract.display_rows(read_ids, gw)}
+    # L'entrant du transfert recommandé n'est pas dans l'effectif : il doit
+    # quand même être affichable, sinon le XI d'après-transfert ne peut pas
+    # être montré.
+    apres = central.get("apres_transfert")
+    besoin = list(read_ids)
+    if apres:
+        besoin.append(apres["in"]["id"])
+    display = {r["id"]: r for r in contract.display_rows(besoin, gw)}
 
     def shown(rows):
         return [display[r["id"]] for r in rows]
@@ -113,12 +120,22 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
                 alternatives=[dict(a, captain=display[a["captain"]["id"]],
                                    vice=display[a["vice"]["id"]])
                               for a in band["alternatives"]])
+    if apres:
+        b = apres["armband"]
+        apres = dict(
+            apres, xi=shown(apres["xi"]), bench=shown(apres["bench"]),
+            out=display[apres["out"]["id"]], **{"in": display[apres["in"]["id"]]},
+            armband=dict(b, captain=display[b["captain"]["id"]],
+                         vice=display[b["vice"]["id"]]),
+            xi_in=[display[i] for i in apres["xi_in"]],
+            xi_out=[display[i] for i in apres["xi_out"]])
     return {
         "mode": "hebdomadaire",
         "gw": gw, "deadline": contract.deadline, "horizon": gws,
         "squad": [display[pid] for pid in read_ids],
         "xi": shown(central["xi"]), "bench": shown(central["bench"]),
         "armband": band,
+        "apres_transfert": apres,
         "transfer": central["transfer"], "bank": bank,
         "horizon_eps": central["horizon_eps"], "market_size": central["market_size"],
         "missing_ids": missing, "missing_names": facts["missing_names"],

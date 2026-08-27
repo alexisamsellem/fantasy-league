@@ -179,3 +179,43 @@ le corrige.
 **Ce que ça ne change pas** : aucune projection, et aucun chiffre des modes
 existants. `optimize_squad` sans `start` se comporte exactement comme avant —
 un test l'affirme, à effectif et valeur identiques.
+
+
+## A6 — Le XI affiché n'était pas celui qu'on alignerait — CORRIGÉ
+
+**Constaté le** 27/08/2026 par Alexis, à la lecture du rapport GW2 réel :
+« si je transfère Tzolis pour Tavernier, comment peut-il être sur le banc ? »
+**Présent depuis** le commit `222a0b0` (V0).
+**Sévérité** : haute — la feuille de match du rapport décrivait une équipe qui
+n'existerait plus.
+
+Le rapport hebdomadaire calcule le XI, le banc et le brassard sur l'effectif
+DÉTENU, puis, dans une section séparée, recommande un transfert. Les deux
+n'étaient jamais réconciliés. Conséquences sur le rapport GW2 réel :
+
+- le joueur vendu (Tzolis) figurait encore au banc affiché, en rang 2 ;
+- l'entrant (Tavernier, EP 3,90 contre 1,58) n'apparaissait nulle part dans le
+  onze, alors qu'il y entre nécessairement ;
+- la formation annoncée était fausse : 4-4-2 affiché, 3-5-2 après l'échange,
+  van Ewijk (EP 2,11) passant sur le banc.
+
+Le gain du transfert, lui, était juste : `transfer_scan` mesure bien l'écart
+sur le meilleur XI (correction A2). L'optimiseur SAVAIT que l'entrant jouerait ;
+le rapport ne le montrait pas.
+
+**Correction** : `weekly_decision` calcule le second onze là où l'échange est
+décidé et le rend sous `apres_transfert` (XI, banc, brassard, entrées et
+sorties du onze). Le rapport titre désormais « XI recommandé SI TU CONSERVES »
+et ajoute « XI à aligner SI TU TRANSFÈRES », avec la ligne de mouvements, le
+banc d'après et un avertissement explicite si le brassard change avec
+l'échange. La synthèse annonce les deux formations quand elles diffèrent.
+
+Cinq tests de régression dans `tests/test_weekly.py` (`ApresTransfertTests`),
+sur une fixture déterministe — 15 joueurs à 2,0 pts et un entrant à 9,0 pts —
+qui exerce exactement le cas fautif : sortant sur le banc, entrant qui doit
+prendre une place dans le onze. Un test vérifie aussi qu'une décision
+« conserver » ne produit AUCUN second onze : en inventer un serait inventer
+une décision.
+
+**Ce que ça ne change pas** : aucune projection, aucune décision. Le capitaine,
+le XI et l'arbitrage sont les mêmes qu'avant. C'est l'affichage qui mentait.

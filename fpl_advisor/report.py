@@ -88,8 +88,8 @@ def _minutes_lines(xi):
     return lines
 
 
-def _bench_lines(bench):
-    lines = ["\n## Banc (dans l'ordre)",
+def _bench_lines(bench, titre="Banc (dans l'ordre)"):
+    lines = [f"\n## {titre}",
              "\n| Rang | Joueur | Poste | EP | P(jouer) |", "|---|---|---|---|---|"]
     for i, r in enumerate(bench, 1):
         lines.append(f"| {i} | {r['web_name']} | {POS[r['element_type']]} | "
@@ -158,6 +158,44 @@ def _scenario_lines(rec):
     return lines
 
 
+
+def _apres_transfert_lines(ap, teams):
+    """Le XI à aligner SI le transfert recommandé est effectué.
+
+    Sans cette section, le rapport montrait le onze de l'effectif AVANT
+    l'échange à côté d'un transfert recommandé : le joueur vendu apparaissait
+    encore sur le banc affiché, l'entrant nulle part, et la formation pouvait
+    être fausse. La feuille de match était donc celle d'une équipe qui
+    n'existerait plus (anomalie A6).
+    """
+    if not ap:
+        return []
+    d, m, f = (sum(1 for p in ap["xi"] if p["element_type"] == t) for t in (2, 3, 4))
+    lines = _xi_lines(
+        ap["xi"], teams,
+        title=f"XI à aligner SI TU TRANSFÈRES ({d}-{m}-{f}) — "
+              f"{ap['out']['web_name']} → {ap['in']['web_name']}")
+    mouvements = []
+    for r in ap["xi_in"]:
+        mouvements.append(f"**{r['web_name']}** entre dans le onze")
+    for r in ap["xi_out"]:
+        mouvements.append(f"**{r['web_name']}** passe sur le banc")
+    if mouvements:
+        lines.append("\nCe que l'échange change dans le onze : "
+                     + " ; ".join(mouvements) + ".")
+    lines += _bench_lines(ap["bench"], titre="Banc après transfert (dans l'ordre)")
+    b = ap["armband"]
+    if ap["captain_change"]:
+        lines.append(
+            f"\n> **LE BRASSARD CHANGE AVEC CE TRANSFERT** : capitaine "
+            f"**{b['captain']['web_name']}**, vice **{b['vice']['web_name']}** "
+            "après l'échange, contre le couple annoncé plus haut sans lui.")
+    else:
+        lines.append(
+            f"\nBrassard inchangé par l'échange : capitaine "
+            f"**{b['captain']['web_name']}**, vice **{b['vice']['web_name']}**.")
+    return lines
+
 def render(rec):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     teams = rec["teams"]
@@ -205,10 +243,17 @@ def render(rec):
 
     # Synthèse
     band, tr = rec["armband"], rec["transfer"]
+    ap = rec.get("apres_transfert")
     d, m, f = (sum(1 for p in rec["xi"] if p["element_type"] == t) for t in (2, 3, 4))
+    forme = f"**{d}-{m}-{f}**"
+    if ap:
+        da, ma, fa = (sum(1 for x in ap["xi"] if x["element_type"] == t)
+                      for t in (2, 3, 4))
+        if (da, ma, fa) != (d, m, f):
+            forme += f" en conservant, **{da}-{ma}-{fa}** en transférant"
     lines += [
         "\n## Synthèse",
-        f"- Formation : **{d}-{m}-{f}**",
+        f"- Formation : {forme}",
         f"- Capitaine : **{band['captain']['web_name']}** ; vice : "
         f"**{band['vice']['web_name']}**",
         f"- Transfert : **{tr['decision'].upper()}**"
@@ -219,11 +264,13 @@ def render(rec):
            " le transfert gratuit (aucun gain net suffisant identifié)"),
     ]
 
-    lines += _xi_lines(rec["xi"], teams,
-                       title="XI calculé (non publiable)" if bloque
-                       else "XI recommandé")
+    titre_xi = "XI calculé (non publiable)" if bloque else "XI recommandé"
+    if ap:
+        titre_xi += " SI TU CONSERVES"
+    lines += _xi_lines(rec["xi"], teams, title=titre_xi)
     lines += _minutes_lines(rec["xi"])
     lines += _bench_lines(rec["bench"])
+    lines += _apres_transfert_lines(ap, teams)
     lines += _armband_lines(band)
     lines += _scenario_lines(rec)
     c, v = band["captain"], band["vice"]

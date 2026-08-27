@@ -61,9 +61,31 @@ def weekly_decision(rows, squad_ids, bank, gws, per_position=MARKET_PER_POSITION
     transfer = transfer_scan(squad, market, horizon_eps, bank)
 
     top = transfer["candidates"][0] if transfer["candidates"] else None
+
+    # Le XI d'AVANT n'est pas celui d'APRÈS. Un entrant meilleur que le sortant
+    # entre presque toujours dans le onze, et il en déplace un autre — parfois
+    # en changeant la formation. Afficher le seul XI d'avant à côté d'un
+    # transfert recommandé donne une feuille de match fausse, et laisse le
+    # joueur vendu sur le banc affiché. Le second XI est donc calculé ici, là
+    # où l'échange est décidé.
+    apres = None
+    if top and transfer["decision"] == "transférer":
+        squad_apres = [top["in"] if p["id"] == top["out"]["id"] else p
+                       for p in squad]
+        xi_a, bench_a = pick_xi(squad_apres)
+        band_a = armband(xi_a)
+        apres = {"squad": squad_apres, "xi": xi_a, "bench": bench_a,
+                 "armband": band_a, "out": top["out"], "in": top["in"],
+                 "captain_change": band_a["captain"]["id"] != band["captain"]["id"],
+                 "xi_in": [p["id"] for p in xi_a
+                           if p["id"] not in {x["id"] for x in xi}],
+                 "xi_out": [p["id"] for p in xi
+                            if p["id"] not in {x["id"] for x in xi_a}]}
+
     return {
         "gw": gw, "horizon": list(gws),
         "squad": squad, "xi": xi, "bench": bench, "armband": band,
+        "apres_transfert": apres,
         "transfer": transfer, "horizon_eps": horizon_eps,
         "market_size": len(market), "missing_ids": missing,
         # Empreinte comparable d'un scénario à l'autre (voir evaluation).
