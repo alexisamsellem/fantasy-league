@@ -114,7 +114,7 @@ def collect_all(cfg, data_dir="data", with_history=False):
     if with_history:
         collect_element_history(store, boot.get("elements", []))
 
-    tid, lid = cfg["team_id"], cfg["league_id"]
+    tid = cfg["team_id"]
     get_json(f"/entry/{tid}/", store, f"entry-{tid}")
     get_json(f"/entry/{tid}/history/", store, f"entry-{tid}-history")
     get_json(f"/entry/{tid}/transfers/", store, f"entry-{tid}-transfers")
@@ -122,22 +122,29 @@ def collect_all(cfg, data_dir="data", with_history=False):
     if last:
         get_json(f"/entry/{tid}/event/{last}/picks/", store, f"entry-{tid}-gw{last}-picks")
 
-    # Classement de la ligue (pagination bornée) puis picks des rivaux
-    rivals = []
-    for page in range(1, MAX_LEAGUE_PAGES + 1):
-        data, _ = get_json(f"/leagues-classic/{lid}/standings/?page_standings={page}",
-                           store, f"league-{lid}-standings-p{page}")
-        if not data:
-            break
-        rivals.extend(data.get("standings", {}).get("results") or [])
-        if not data.get("standings", {}).get("has_next"):
-            break
-    for r in rivals[:MAX_RIVALS]:
-        rid = r.get("entry")
-        if not rid or rid == tid or not last:
-            continue
-        get_json(f"/entry/{rid}/event/{last}/picks/", store, f"entry-{rid}-gw{last}-picks")
-        get_json(f"/entry/{rid}/history/", store, f"entry-{rid}-history")
+    # Classements des ligues (pagination bornée) puis picks des rivaux.
+    # Un même manager peut appartenir à plusieurs ligues : ses picks ne sont
+    # collectés qu'une fois, sinon on paie deux fois le même GET.
+    deja = {tid}
+    for lid in (cfg.get("league_ids") or [cfg["league_id"]]):
+        rivals = []
+        for page in range(1, MAX_LEAGUE_PAGES + 1):
+            data, _ = get_json(
+                f"/leagues-classic/{lid}/standings/?page_standings={page}",
+                store, f"league-{lid}-standings-p{page}")
+            if not data:
+                break
+            rivals.extend(data.get("standings", {}).get("results") or [])
+            if not data.get("standings", {}).get("has_next"):
+                break
+        for r in rivals[:MAX_RIVALS]:
+            rid = r.get("entry")
+            if not rid or rid in deja or not last:
+                continue
+            deja.add(rid)
+            get_json(f"/entry/{rid}/event/{last}/picks/", store,
+                     f"entry-{rid}-gw{last}-picks")
+            get_json(f"/entry/{rid}/history/", store, f"entry-{rid}-history")
 
     return store.dir
 
@@ -183,7 +190,8 @@ def load_snapshot(run_dir, cfg):
     events = boot.get("events", [])
     closed = closed_gws(events)
     last = closed[-1] if closed else None
-    tid, lid = cfg["team_id"], cfg["league_id"]
+    tid = cfg["team_id"]
+    league_ids = cfg.get("league_ids") or [cfg["league_id"]]
 
     live = {}
     for gw in closed[-HISTORY_GWS:]:
@@ -191,23 +199,32 @@ def load_snapshot(run_dir, cfg):
         if data:
             live[gw] = data
 
-    standings = []
-    for page in range(1, MAX_LEAGUE_PAGES + 1):
-        data = _read(run_dir, f"league-{lid}-standings-p{page}")
-        if not data:
-            break
-        standings.extend(data.get("standings", {}).get("results") or [])
+    def _une_ligue(lid):
+        rows, nom = [], None
+        for page in range(1, MAX_LEAGUE_PAGES + 1):
+            data = _read(run_dir, f"league-{lid}-standings-p{page}")
+            if not data:
+                break
+            nom = nom or (data.get("league") or {}).get("name")
+            rows.extend(data.get("standings", {}).get("results") or [])
+        riv = {}
+        for r in rows:
+            rid = r.get("entry")
+            if not rid or rid == tid:
+                continue
+            riv[rid] = {
+                "row": r,
+                "picks": _read(run_dir, f"entry-{rid}-gw{last}-picks") if last else None,
+                "history": _read(run_dir, f"entry-{rid}-history"),
+            }
+        return {"id": lid, "name": nom or f"ligue {lid}",
+                "standings": rows, "rivals": riv}
 
-    rivals = {}
-    for r in standings:
-        rid = r.get("entry")
-        if not rid or rid == tid:
-            continue
-        rivals[rid] = {
-            "row": r,
-            "picks": _read(run_dir, f"entry-{rid}-gw{last}-picks") if last else None,
-            "history": _read(run_dir, f"entry-{rid}-history"),
-        }
+    leagues = [_une_ligue(lid) for lid in league_ids]
+    # La première ligue reste la vue par défaut : tout ce qui lisait
+    # `standings` / `rivals` continue de fonctionner sans le savoir.
+    standings = leagues[0]["standings"] if leagues else []
+    rivals = leagues[0]["rivals"] if leagues else {}
 
     return {
         "run_dir": str(run_dir),
@@ -229,8 +246,10 @@ def load_snapshot(run_dir, cfg):
         },
         "standings": standings,
         "rivals": rivals,
+        "leagues": leagues,
         "team_id": tid,
-        "league_id": lid,
+        "league_id": league_ids[0],
+        "league_ids": league_ids,
     }
 
 

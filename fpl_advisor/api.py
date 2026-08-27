@@ -62,25 +62,51 @@ def get_json(path, store=None, name=None):
         return None, f"réponse non-JSON {url} : {e}"
 
 
+def _entier_utile(path, cle, v):
+    """Un identifiant FPL est un entier strictement positif. Le gabarit livré
+    vaut 0 : il passe le test « est un entier » et produirait une collecte
+    entière de 404 silencieux. On refuse."""
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise SystemExit(f"{path} : champ '{cle}' manquant ou non entier.")
+    if v <= 0:
+        raise SystemExit(
+            f"{path} : champ '{cle}' encore à {v} — c'est la valeur du "
+            "gabarit, pas la tienne. Ouvrir le fichier et y mettre les "
+            "vrais identifiants (docs/guide-j0.md, sections 2 et 3).")
+    return v
+
+
 def load_config(path="config.local.json"):
-    """Config locale (jamais commitée) : {"team_id": int, "league_id": int}."""
+    """Config locale, jamais commitée.
+
+        {"team_id": int, "league_ids": [int, ...]}
+
+    `league_id` (singulier) reste accepté : plusieurs mini-ligues peuvent
+    compter à la fois, et la forme à une seule ligue en est le cas particulier.
+    La config normalisée porte TOUJOURS `league_ids`, dans l'ordre donné —
+    c'est cet ordre qui décide de la ligue de référence du rapport."""
     p = Path(path)
     if not p.exists():
         raise SystemExit(
             f"Configuration absente : {path}.\n"
             "Copier config.example.json vers config.local.json et y mettre "
-            "team_id et league_id (voir docs/guide-j0.md pour les retrouver). "
+            "team_id et league_ids (voir docs/guide-j0.md pour les retrouver). "
             "Ce fichier est ignoré par Git et ne doit jamais être commité.")
     cfg = json.loads(p.read_text(encoding="utf-8"))
-    for k in ("team_id", "league_id"):
-        v = cfg.get(k)
-        if not isinstance(v, int) or isinstance(v, bool):
-            raise SystemExit(f"{path} : champ '{k}' manquant ou non entier.")
-        # Le gabarit livré vaut 0 : il passe le test « est un entier » et
-        # produirait une collecte entière de 404 silencieux. On refuse.
-        if v <= 0:
-            raise SystemExit(
-                f"{path} : champ '{k}' encore à {v} — c'est la valeur du "
-                "gabarit, pas la tienne. Ouvrir le fichier et y mettre les "
-                "vrais identifiants (docs/guide-j0.md, sections 2 et 3).")
+    cfg["team_id"] = _entier_utile(path, "team_id", cfg.get("team_id"))
+
+    brut = cfg.get("league_ids")
+    if brut is None:
+        brut = [cfg.get("league_id")]
+    elif not isinstance(brut, list):
+        raise SystemExit(f"{path} : 'league_ids' doit être une liste d'entiers.")
+    if not brut:
+        raise SystemExit(f"{path} : 'league_ids' est vide — au moins une ligue.")
+    ids = []
+    for v in brut:
+        v = _entier_utile(path, "league_ids", v)
+        if v not in ids:            # deux fois la même ligue = deux fois la collecte
+            ids.append(v)
+    cfg["league_ids"] = ids
+    cfg["league_id"] = ids[0]       # ligue de référence, pour la compatibilité
     return cfg

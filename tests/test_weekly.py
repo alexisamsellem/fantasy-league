@@ -492,7 +492,7 @@ class RapportHebdomadaireTests(unittest.TestCase):
                         "## Trois scénarios et stabilité des décisions",
                         "## Transférer ou conserver",
                         "## Projections, incertitude",
-                        "## Mini-ligue — exposition connue des rivaux",
+                        "## Mini-ligues — exposition connue des rivaux",
                         "## Événements qui feraient changer",
                         "## Limites de la V0"):
             self.assertIn(section, texte)

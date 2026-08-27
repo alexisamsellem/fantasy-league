@@ -210,7 +210,7 @@ class DemoEndToEndTests(unittest.TestCase):
         for section in ("## Synthèse", "## XI recommandé", "## Banc",
                         "## Capitaine et vice", "## Transférer ou conserver",
                         "## Projections, incertitude",
-                        "## Mini-ligue — exposition connue des rivaux",
+                        "## Mini-ligues — exposition connue des rivaux",
                         "## Événements qui feraient changer",
                         "## Limites de la V0"):
             self.assertIn(section, text)

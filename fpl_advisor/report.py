@@ -8,6 +8,7 @@ Le rapport contient des données personnelles (effectif, ligue, noms) : il est
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import rivals
 from .evaluation import quality
 
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
@@ -196,6 +197,80 @@ def _apres_transfert_lines(ap, teams):
             f"**{b['captain']['web_name']}**, vice **{b['vice']['web_name']}**.")
     return lines
 
+
+def _une_ligue_lines(v):
+    st, em = v["standings"], v["meta"]
+    titre = v["name"] or f"ligue {v['id']}"
+    lines = [f"\n### {titre}"]
+    if st.get("me"):
+        pos = (f"\nClassement : **{st['me'].get('rank')}ᵉ sur "
+               f"{st['n_managers']}** ; écart au leader : "
+               f"**{st['gap_to_leader']} pts**")
+        if st.get("gap_to_next"):
+            pos += f" ; au manager juste devant : {st['gap_to_next']} pts"
+        lines.append(pos + ".")
+    lines.append(f"\nLecture de la position : {v['posture']}.")
+    lines.append(f"\nPicks publics de la GW{em.get('gw')} (dernière deadline "
+                 f"passée) pour {em.get('n_with_picks', 0)}/"
+                 f"{em.get('n_rivals', 0)} rivaux. Leurs choix de la GW à venir "
+                 "sont inconnus de tous — aucune prétention contraire.")
+    if v["exposure"]:
+        lines += ["\n| Joueur | EO locale | Capitaines | Je le possède |",
+                  "|---|---|---|---|"]
+        for r in v["exposure"][:12]:
+            lines.append(f"| {r['name']} | {100 * r['eo_local']:.0f} % | "
+                         f"{r['captains']} | {'oui' if r['i_own'] else 'NON'} |")
+    if st.get("chips_used"):
+        used = "; ".join(f"{k} : {', '.join(x)}" for k, x in st["chips_used"].items())
+        lines.append(f"\nChips déjà consommés par les rivaux : {used}.")
+    return lines
+
+
+def _league_lines(rec):
+    """Une section par mini-ligue, plus les joueurs sur lesquels les ligues
+    ne disent pas la même chose.
+
+    Les ligues ne se moyennent pas. Être chasseur proche dans l'une et en
+    retard dans l'autre n'appelle pas la même conduite ; fondre les deux en un
+    seul chiffre effacerait précisément l'arbitrage à rendre."""
+    vues = rec.get("leagues")
+    if not vues:
+        return []
+    lines = ["\n## Mini-ligues — exposition connue des rivaux",
+             "\nL'EO locale compte le capitaine double : elle peut dépasser "
+             "100 %. Un joueur à forte EO que je ne possède pas est une "
+             "position courte contre la ligue ; un joueur à faible EO que je "
+             "possède est un pari contre elle."]
+    for v in vues:
+        lines += _une_ligue_lines(v)
+
+    conflits = rec.get("exposure_conflicts") or []
+    if len(vues) > 1:
+        lines.append("\n### Là où les ligues ne disent pas la même chose")
+        if not conflits:
+            lines.append(
+                "\nAucun joueur ne change de nature d'une ligue à l'autre "
+                f"(seuil : {100 * rivals.EO_CONFLIT:.0f} points d'écart d'EO). "
+                "Les deux classements peuvent quand même appeler des conduites "
+                "différentes — voir les lectures de position ci-dessus.")
+        else:
+            lines += ["\n| Joueur | "
+                      + " | ".join((v["name"] or str(v["id"])) for v in vues)
+                      + " | Écart | Je le possède |",
+                      "|" + "---|" * (3 + len(vues))]
+            for r in conflits[:10]:
+                eos = " | ".join(f"{100 * x:.0f} %" for x in r["eo"])
+                lines.append(f"| {r['name']} | {eos} | "
+                             f"{100 * r['ecart']:.0f} pts | "
+                             f"{'oui' if r['i_own'] else 'NON'} |")
+            lines.append(
+                "\nCes joueurs ne sont pas le même pari selon la ligue : "
+                "posséder un joueur très possédé protège une avance, posséder "
+                "un joueur peu possédé creuse un retard. Le moteur ne tranche "
+                "pas — il ne sait pas laquelle des deux ligues compte le plus "
+                "pour toi.")
+    return lines
+
 def render(rec):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     teams = rec["teams"]
@@ -344,29 +419,8 @@ def render(rec):
                      "(prior de poste, confiance faible) : "
                      + ", ".join(r["web_name"] for r in thin) + ".")
 
-    # Rivaux
-    em, st = rec["exposure_meta"], rec["standings"]
-    lines += ["\n## Mini-ligue — exposition connue des rivaux"]
-    if st.get("me"):
-        lines.append(f"\nClassement : {st['me'].get('rank')}ᵉ sur {st['n_managers']} ; "
-                     f"écart au leader : {st['gap_to_leader']} pts.")
-    lines.append(f"\nPicks publics de la GW{em.get('gw')} (dernière deadline passée) "
-                 f"pour {em.get('n_with_picks', 0)}/{em.get('n_rivals', 0)} rivaux. "
-                 "Leurs choix de la GW à venir sont inconnus de tous — aucune "
-                 "prétention contraire.")
-    if rec["exposure"]:
-        lines += ["\n| Joueur | EO locale | Capitaines | Je le possède |",
-                  "|---|---|---|---|"]
-        lines.insert(-2, "\nL'EO locale compte le capitaine double : elle peut "
-                         "dépasser 100 %. Un joueur à forte EO que je ne possède "
-                         "pas est une position courte contre la ligue.")
-        for r in rec["exposure"][:12]:
-            eo = f"{100 * r['eo_local']:.0f} %"
-            lines.append(f"| {r['name']} | {eo} | {r['captains']} | "
-                         f"{'oui' if r['i_own'] else 'NON'} |")
-    if st.get("chips_used"):
-        used = "; ".join(f"{k} : {', '.join(v)}" for k, v in st["chips_used"].items())
-        lines.append(f"\nChips déjà consommés par les rivaux : {used}.")
+    # Rivaux — une section par mini-ligue, jamais de moyenne entre elles
+    lines += _league_lines(rec)
 
     # Déclencheurs de révision
     lines += ["\n## Événements qui feraient changer ces décisions"]

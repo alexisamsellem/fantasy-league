@@ -14,7 +14,7 @@ qui ne doit influencer aucune projection.
 """
 
 from . import weekly
-from .rivals import local_exposure, standings_summary
+from .rivals import exposure_conflicts, league_views
 
 
 def build_recommendation(parsed, now=None, freeze_to=None):
@@ -33,7 +33,13 @@ def build_recommendation(parsed, now=None, freeze_to=None):
         pick_gw=parsed.get("last_closed_gw"))
     rec["frozen_projections"] = str(frozen) if frozen else None
 
-    exposure, expo_meta = local_exposure(parsed)
-    rec.update({"exposure": exposure, "exposure_meta": expo_meta,
-                "standings": standings_summary(parsed)})
+    # Plusieurs mini-ligues peuvent compter à la fois : elles sont lues
+    # séparément, jamais moyennées. La première reste la vue par défaut pour
+    # tout ce qui n'en attend qu'une.
+    vues = league_views(parsed)
+    rec.update({"leagues": vues,
+                "exposure_conflicts": exposure_conflicts(vues),
+                "exposure": vues[0]["exposure"] if vues else [],
+                "exposure_meta": vues[0]["meta"] if vues else {},
+                "standings": vues[0]["standings"] if vues else {}})
     return rec

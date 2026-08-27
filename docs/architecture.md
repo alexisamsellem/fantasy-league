@@ -92,7 +92,10 @@ Le dépôt prend trois sortes de décisions, avec la même mécanique :
 
 L'effectif détenu est une **donnée personnelle** : il n'entre jamais dans le
 contrat de projections, qui reste public et publiable. Il est passé à part, en
-simples identifiants, par `advise.py` et `audit.py`.
+simples identifiants, par `advise.py` et `audit.py`. Les mini-ligues le sont
+aussi : `rivals.py` les lit une par une et ne les moyenne jamais — être
+chasseur proche dans l'une et en retard dans l'autre n'appelle pas la même
+conduite, et fondre les deux en un chiffre effacerait l'arbitrage à rendre.
 
 L'audit est un **diagnostic**, pas une décision : sa porte qualité ne vérifie
 donc pas `deadline_actionnable` — un écart mesuré sur quatre journées reste
