@@ -24,6 +24,13 @@ from fpl_advisor.demo import build_parsed                         # noqa: E402
 from fpl_advisor.optimization import weekly as opt_weekly         # noqa: E402
 
 
+def _luminance(hexa):
+    """Luminance relative approchée d'une couleur #rrggbb, entre 0 et 1."""
+    h = hexa.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
 def _rec():
     if not hasattr(_rec, "cache"):
         _rec.cache = build_recommendation(build_parsed())
@@ -225,3 +232,79 @@ class AlertesEtLiguesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ThemeSombreTests(unittest.TestCase):
+    """Le mail est lu en thème sombre sur téléphone. Deux pièges, tous deux
+    constatés sur un vrai client avant d'être corrigés."""
+
+    def test_aucun_grand_aplat_sombre_avec_du_texte_blanc(self):
+        """Piège n°1 : un terrain vert foncé + noms en blanc. Les messageries
+        inversent partiellement, le fond devient noir, le texte gris — et le
+        onze devient illisible. Toutes les pastilles doivent donc être CLAIRES
+        avec un texte foncé."""
+        for c in list(mail.POSTES.values()) + [mail.CAPITAINE, mail.VICE,
+                                               mail.BANC]:
+            fond, encre = c["fond"], c["encre"]
+            self.assertGreater(_luminance(fond), 0.75,
+                               f"fond {fond} trop sombre pour survivre à "
+                               "l'inversion")
+            self.assertLess(_luminance(encre), 0.35,
+                            f"encre {encre} trop claire sur un fond clair")
+
+    def test_le_texte_qui_s_eclaircit_n_est_jamais_sur_un_fond_fixe_clair(self):
+        """Piège n°2 : marquer `.encre` un texte posé sur une carte colorée.
+        En thème sombre le texte s'éclaircit, la carte reste claire, et la
+        phrase disparaît. C'est arrivé aux lectures de position."""
+        html = mail.render_html(_rec())
+        cartes = re.findall(r'<table[^>]*border-left:5px solid.*?</table>',
+                            html, flags=re.S)
+        self.assertTrue(cartes, "aucune carte colorée trouvée")
+        for c in cartes:
+            self.assertNotIn('class="encre"', c,
+                             "une carte colorée porte du texte marqué `.encre`")
+
+    def test_le_theme_sombre_est_declare_et_outille(self):
+        html = mail.render_html(_rec())
+        self.assertIn('name="color-scheme" content="light dark"', html)
+        self.assertIn("prefers-color-scheme: dark", html)
+        for classe in (".page", ".feuille", ".cadre", ".encre", ".sourdine"):
+            self.assertIn(classe, mail.STYLE_SOMBRE)
+
+
+class PiecesJointesTests(unittest.TestCase):
+    """Le mail annonçait « le détail complet est en pièce jointe » même
+    lorsqu'aucun fichier ne partait."""
+
+    def test_sans_piece_jointe_le_mail_ne_promet_rien(self):
+        for rendu in (mail.render_html, mail.render_texte):
+            texte = rendu(_rec(), pieces=[])
+            self.assertIn("Aucune pièce jointe", texte)
+
+    def test_avec_pieces_les_noms_exacts_sont_annonces(self):
+        noms = ["GW3-recommandation-x.md", "GW3-audit-effectif-x.md"]
+        for rendu in (mail.render_html, mail.render_texte):
+            texte = rendu(_rec(), pieces=noms)
+            for n in noms:
+                self.assertIn(n, texte)
+            self.assertNotIn("Aucune pièce jointe", texte)
+
+    def test_les_noms_annonces_sont_ceux_trouves_sur_disque(self):
+        import tempfile
+        from fpl_advisor.report import pieces_jointes
+        with tempfile.TemporaryDirectory() as d:
+            rep = Path(d) / "reports"
+            rep.mkdir()
+            (rep / "GW7-recommandation-20260101T000000Z.md").write_text("x")
+            (rep / "GW7-recommandation-20260102T000000Z.md").write_text("x")
+            (rep / "GW7-audit-effectif-20260102T000000Z.md").write_text("x")
+            (rep / "GW8-recommandation-20260103T000000Z.md").write_text("x")
+            trouves = pieces_jointes(7, d)
+        self.assertEqual(trouves, ["GW7-recommandation-20260102T000000Z.md",
+                                   "GW7-audit-effectif-20260102T000000Z.md"])
+
+    def test_aucun_rapport_sur_disque_donne_une_liste_vide(self):
+        import tempfile
+        from fpl_advisor.report import pieces_jointes
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(pieces_jointes(2, d), [])

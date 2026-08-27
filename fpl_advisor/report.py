@@ -465,19 +465,41 @@ def write_report(rec, data_dir="data"):
     return path
 
 
-def write_email(rec, data_dir="data"):
+def pieces_jointes(gw, data_dir="data"):
+    """Les rapports de CETTE journée présents sur disque, du plus récent.
+
+    Le mail ne doit annoncer que des pièces jointes qui existent : c'est ce
+    que cette fonction établit, plutôt qu'une promesse écrite en dur."""
+    out = Path(data_dir) / "reports"
+    if not out.exists():
+        return []
+    noms = []
+    for motif in (f"GW{gw}-recommandation-*.md", f"GW{gw}-audit-effectif-*.md"):
+        trouves = sorted(out.glob(motif))
+        if trouves:
+            noms.append(trouves[-1].name)
+    return noms
+
+
+def write_email(rec, data_dir="data", pieces=None):
     """Écrit le mail de la semaine, HTML et texte, à côté du rapport complet.
 
     Les deux formes sont produites ensemble et jamais séparément : un client
     qui n'affiche que le texte doit recevoir la même décision, pas un résumé
-    appauvri."""
+    appauvri.
+
+    `pieces` : les fichiers réellement joints à l'envoi. Par défaut, ceux qui
+    existent sur disque pour cette journée — un mail ne doit jamais promettre
+    une pièce jointe qui n'arrivera pas."""
     out = Path(data_dir) / "reports"
     out.mkdir(parents=True, exist_ok=True)
+    if pieces is None:
+        pieces = pieces_jointes(rec["gw"], data_dir)
     base = out / f"GW{rec['gw']}-mail"
     html = base.with_suffix(".html")
     texte = base.with_suffix(".txt")
-    html.write_text(mail.render_html(rec), encoding="utf-8")
-    texte.write_text(mail.render_texte(rec), encoding="utf-8")
+    html.write_text(mail.render_html(rec, pieces=pieces), encoding="utf-8")
+    texte.write_text(mail.render_texte(rec, pieces=pieces), encoding="utf-8")
     (out / f"GW{rec['gw']}-sujet.txt").write_text(mail.sujet(rec), encoding="utf-8")
     return html, texte
 

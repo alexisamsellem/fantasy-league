@@ -34,7 +34,23 @@ CARTE = "#f9fafb"
 VERT = "#15803d"
 AMBRE = "#b45309"
 ROUGE = "#b91c1c"
-PELOUSE = "#166534"
+
+# Une couleur par poste. Toutes les pastilles sont CLAIRES avec un texte
+# foncé — jamais l'inverse. Raison : les messageries en thème sombre
+# retournent les couleurs qu'elles jugent claires, et retournent AUSSI le
+# texte posé dessus. Un fond clair + texte foncé reste donc contrasté après
+# inversion (il devient foncé + texte clair). Un bloc foncé avec du texte
+# blanc, lui, se fait inverser à moitié et devient illisible — c'est ce qui
+# est arrivé au terrain vert de la première version.
+POSTES = {
+    1: {"nom": "GB",  "fond": "#fef3c7", "encre": "#78350f", "trait": "#fcd34d"},
+    2: {"nom": "DEF", "fond": "#dbeafe", "encre": "#1e3a8a", "trait": "#93c5fd"},
+    3: {"nom": "MIL", "fond": "#dcfce7", "encre": "#14532d", "trait": "#86efac"},
+    4: {"nom": "ATT", "fond": "#ffe4e6", "encre": "#881337", "trait": "#fda4af"},
+}
+CAPITAINE = {"fond": "#fef08a", "encre": "#422006", "trait": "#eab308"}
+VICE = {"fond": "#e9d5ff", "encre": "#4c1d95", "trait": "#c4b5fd"}
+BANC = {"fond": "#f1f5f9", "encre": "#475569", "trait": "#cbd5e1"}
 
 ETATS = {"accepté": (VERT, "✓ feu vert"),
          "avertissement": (AMBRE, "▲ à relire"),
@@ -259,24 +275,43 @@ def _titre(t):
             f'{_echap(t)}</p>')
 
 
-def _ligne_joueur(p, brassard=None):
-    badge = ""
+def _pastille(p, brassard=None):
+    """Un joueur = une pastille colorée par son poste. Le brassard change la
+    couleur ET ajoute une lettre : la couleur seule ne suffit pas à qui la
+    distingue mal."""
+    c = POSTES[p["element_type"]]
     if brassard == "C":
-        badge = ('<span style="background:#facc15;color:#422006;font-weight:700;'
-                 'font-size:10px;padding:1px 5px;border-radius:4px;'
-                 'margin-left:5px;">C</span>')
+        c = CAPITAINE
     elif brassard == "V":
-        badge = ('<span style="background:#d1fae5;color:#065f46;font-weight:700;'
-                 'font-size:10px;padding:1px 5px;border-radius:4px;'
-                 'margin-left:5px;">V</span>')
-    return f"{_echap(p['web_name'])}{badge}"
+        c = VICE
+    lettre = ""
+    if brassard:
+        lettre = (f'<span style="font-weight:800;">&nbsp;{brassard}</span>')
+    return (f'<span style="display:inline-block;background:{c["fond"]};'
+            f'color:{c["encre"]};border:1px solid {c["trait"]};'
+            f'border-radius:999px;padding:6px 12px;margin:0 5px 7px 0;'
+            f'font:600 14px/1.2 -apple-system,BlinkMacSystemFont,\'Segoe UI\','
+            f'Roboto,Arial,sans-serif;white-space:nowrap;">'
+            f'{_echap(p["web_name"])}{lettre}</span>')
+
+
+def _etiquette(et):
+    c = POSTES[et]
+    return (f'<span style="display:inline-block;background:{c["trait"]};'
+            f'color:{c["encre"]};border-radius:6px;padding:4px 8px;'
+            f'font:800 11px/1 -apple-system,BlinkMacSystemFont,\'Segoe UI\','
+            f'Roboto,Arial,sans-serif;letter-spacing:.06em;">'
+            f'{c["nom"]}</span>')
 
 
 def _pelouse(rec):
-    """Le onze, par ligne de poste, sur fond vert. Le banc juste dessous."""
+    """Le onze, une ligne par poste, en pastilles colorées. Le banc dessous.
+
+    Pas de grand aplat sombre : voir le commentaire de POSTES. Chaque ligne
+    porte son étiquette de poste à gauche, ce qui permet de lire la formation
+    même quand les noms passent à la ligne sur un téléphone."""
     ap = rec.get("apres_transfert")
-    xi = (ap or rec)["xi"]
-    bench = (ap or rec)["bench"]
+    xi, bench = (ap or rec)["xi"], (ap or rec)["bench"]
     band = (ap or rec)["armband"]
     cap, vice = band["captain"]["id"], band["vice"]["id"]
 
@@ -286,55 +321,83 @@ def _pelouse(rec):
                          key=lambda p: -p["ep"])
         if not joueurs:
             continue
-        cells = " &nbsp;·&nbsp; ".join(
-            _ligne_joueur(p, "C" if p["id"] == cap else
-                          "V" if p["id"] == vice else None) for p in joueurs)
+        chips = "".join(
+            _pastille(p, "C" if p["id"] == cap else
+                      "V" if p["id"] == vice else None) for p in joueurs)
         rangs.append(
-            f'<tr><td style="padding:9px 12px;text-align:center;color:#ffffff;'
-            f'font:600 15px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\','
-            f'Roboto,Arial,sans-serif;">{cells}</td></tr>')
+            f'<tr><td width="46" valign="top" style="padding:9px 8px 2px 0;">'
+            f'{_etiquette(et)}</td>'
+            f'<td valign="top" style="padding:6px 0 0;">{chips}</td></tr>')
 
-    banc = " &nbsp;·&nbsp; ".join(
-        f"{i}. {_echap(p['web_name'])}" for i, p in enumerate(bench, 1))
+    banc = "".join(
+        f'<span style="display:inline-block;background:{BANC["fond"]};'
+        f'color:{BANC["encre"]};border:1px solid {BANC["trait"]};'
+        f'border-radius:999px;padding:5px 11px;margin:0 5px 6px 0;'
+        f'font:600 13px/1.2 -apple-system,BlinkMacSystemFont,\'Segoe UI\','
+        f'Roboto,Arial,sans-serif;white-space:nowrap;">'
+        f'{i}. {_echap(p["web_name"])}</span>'
+        for i, p in enumerate(bench, 1))
+
     return (
-        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        f'style="background:{PELOUSE};border-radius:10px;">'
-        + "".join(rangs) +
-        f'<tr><td style="padding:10px 12px 14px;text-align:center;'
-        f'border-top:1px solid rgba(255,255,255,.22);color:#bbf7d0;'
-        f'font:400 12px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\','
-        f'Roboto,Arial,sans-serif;">Banc &nbsp; {banc}</td></tr></table>')
+        f'<table role="presentation" width="100%" cellpadding="0" '
+        f'cellspacing="0" class="cadre" style="background:{CARTE};'
+        f'border:1px solid {TRAIT};border-radius:12px;">'
+        f'<tr><td style="padding:12px 16px 6px;">'
+        f'<table role="presentation" width="100%" cellpadding="0" '
+        f'cellspacing="0">{"".join(rangs)}</table></td></tr>'
+        f'<tr><td style="padding:10px 16px 12px;border-top:1px solid {TRAIT};">'
+        f'<div class="sourdine" style="margin-bottom:7px;font:800 11px/1 '
+        f'-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,'
+        f'sans-serif;letter-spacing:.08em;color:{GRIS};">BANC</div>'
+        f'{banc}</td></tr></table>')
+
+
+ACCENTS = [("#7c3aed", "#ede9fe"),   # transfert : violet
+           ("#a16207", "#fef9c3"),   # capitaine : or
+           ("#0f766e", "#ccfbf1")]   # formation : turquoise
 
 
 def _decisions_html(rec):
     lignes = []
     for i, (titre, quoi, note) in enumerate(decisions(rec)):
-        haut = "" if i == 0 else f"border-top:1px solid {TRAIT};"
+        trait, fond = ACCENTS[i % len(ACCENTS)]
         lignes.append(
-            f'<tr><td style="padding:13px 0 12px;{haut}">'
-            f'<div style="font:600 11px/1.3 -apple-system,BlinkMacSystemFont,'
-            f'\'Segoe UI\',Roboto,Arial,sans-serif;letter-spacing:.08em;'
-            f'text-transform:uppercase;color:{GRIS};">{_echap(titre)}</div>'
-            f'<div style="margin-top:4px;font:700 21px/1.3 -apple-system,'
+            f'<tr><td style="padding:0 0 9px;">'
+            f'<table role="presentation" width="100%" cellpadding="0" '
+            f'cellspacing="0" style="background:{fond};'
+            f'border-left:5px solid {trait};border-radius:10px;"><tr>'
+            f'<td style="padding:11px 15px;">'
+            f'<div style="font:800 11px/1.3 -apple-system,BlinkMacSystemFont,'
+            f'\'Segoe UI\',Roboto,Arial,sans-serif;letter-spacing:.09em;'
+            f'text-transform:uppercase;color:{trait};">{_echap(titre)}</div>'
+            f'<div style="margin-top:3px;font:800 20px/1.25 -apple-system,'
             f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
             f'color:{ENCRE};">{_echap(quoi)}</div>'
             f'<div style="margin-top:2px;font:400 13px/1.45 -apple-system,'
             f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
-            f'color:{GRIS};">{_echap(note)}</div></td></tr>')
+            f'color:{trait};">{_echap(note)}</div>'
+            f'</td></tr></table></td></tr>')
     return (f'<table role="presentation" width="100%" cellpadding="0" '
             f'cellspacing="0">{"".join(lignes)}</table>')
 
 
 def _chaine_html(rec):
+    """Chaque maillon numéroté : la chaîne se lit dans l'ordre, et le lecteur
+    voit du premier coup d'œil combien d'étapes il reste."""
     out = []
-    for titre, pourquoi in chaine(rec):
+    for i, (titre, pourquoi) in enumerate(chaine(rec), 1):
         out.append(
-            f'<tr><td width="20" valign="top" style="padding:9px 0 0;'
-            f'color:{VERT};font:700 14px/1 Arial,sans-serif;">↳</td>'
-            f'<td style="padding:7px 0 7px 6px;font:400 14px/1.6 -apple-system,'
-            f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
-            f'color:{ENCRE};"><strong>{_echap(titre)}</strong><br>'
-            f'<span style="color:{GRIS};font-size:13px;">'
+            f'<tr><td width="30" valign="top" style="padding:5px 0 0;">'
+            f'<span style="display:inline-block;width:22px;height:22px;'
+            f'background:#dcfce7;color:#14532d;border:1px solid #86efac;'
+            f'border-radius:999px;text-align:center;'
+            f'font:800 12px/21px -apple-system,BlinkMacSystemFont,'
+            f'\'Segoe UI\',Roboto,Arial,sans-serif;">{i}</span></td>'
+            f'<td class="encre" style="padding:4px 0 12px 8px;'
+            f'font:400 14px/1.55 -apple-system,BlinkMacSystemFont,'
+            f'\'Segoe UI\',Roboto,Arial,sans-serif;color:{ENCRE};">'
+            f'<strong>{_echap(titre)}</strong><br>'
+            f'<span class="sourdine" style="color:{GRIS};font-size:13px;">'
             f'{_echap(pourquoi)}</span></td></tr>')
     return (f'<table role="presentation" width="100%" cellpadding="0" '
             f'cellspacing="0">{"".join(out)}</table>')
@@ -343,22 +406,75 @@ def _chaine_html(rec):
 def _ligues_html(rec):
     cartes = []
     for l in ligues(rec):
-        cartes.append(_bloc(
-            f'<div style="font:700 15px/1.3 -apple-system,BlinkMacSystemFont,'
+        chaud = "retard" in l["lecture"] or "paris" in l["lecture"]
+        trait, fond = (("#c2410c", "#ffedd5") if chaud
+                       else ("#0369a1", "#e0f2fe"))
+        cartes.append(
+            f'<table role="presentation" width="100%" cellpadding="0" '
+            f'cellspacing="0" style="background:{fond};'
+            f'border-left:5px solid {trait};border-radius:10px;'
+            f'margin-bottom:9px;"><tr><td style="padding:12px 15px;">'
+            f'<div style="font:800 15px/1.3 -apple-system,BlinkMacSystemFont,'
             f'\'Segoe UI\',Roboto,Arial,sans-serif;color:{ENCRE};">'
             f'{_echap(l["nom"])}</div>'
-            f'<div style="margin-top:3px;font:600 13px/1.5 -apple-system,'
+            f'<div style="margin-top:3px;font:700 13px/1.5 -apple-system,'
             f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
-            f'color:{ENCRE};">{_echap(l["rang"])} &nbsp;·&nbsp; '
+            f'color:{trait};">{_echap(l["rang"])} &nbsp;·&nbsp; '
             f'{_echap(l["ecart"])} &nbsp;·&nbsp; {_echap(l["voisin"])}</div>'
-            f'<div style="margin-top:5px;font:400 13px/1.5 -apple-system,'
-            f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
-            f'color:{GRIS};">{_echap(l["lecture"])}</div>',
-            fond=CARTE, bord=TRAIT, pad="13px 16px"))
-    return '<div style="height:8px;line-height:8px;">&nbsp;</div>'.join(cartes)
+            f'<div style="margin-top:5px;font:400 13px/1.5 '
+            f'-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,'
+            f'sans-serif;color:{ENCRE};">{_echap(l["lecture"])}</div>'
+            f'</td></tr></table>')
+    return "".join(cartes)
 
 
-def render_html(rec, maintenant=None):
+def _phrase_pieces(pieces):
+    """Ne promets une pièce jointe que s'il y en a une.
+
+    Le mail annonçait « le détail complet est en pièce jointe » quoi qu'il
+    arrive. Quand l'audit échouait — il est en `continue-on-error` — ou quand
+    l'envoi partait sans fichier, le mail mentait au lecteur."""
+    if not pieces:
+        return ("Le rapport complet — douze contrôles, projections joueur par "
+                "joueur, trois scénarios, hypothèses — reste sous "
+                "<code>data/reports/</code>. Aucune pièce jointe dans cet "
+                "envoi.")
+    noms = ", ".join(_echap(n) for n in pieces)
+    pluriel = "s" if len(pieces) > 1 else ""
+    return (f"En pièce{pluriel} jointe{pluriel} : {noms} — les douze contrôles, "
+            "les projections joueur par joueur, les trois scénarios et les "
+            "hypothèses. Le mail décide, la pièce jointe prouve.")
+
+
+# Thème sombre. Sans ce bloc, les messageries inversent l'e-mail à leur façon
+# et détruisent le contraste. Déclarer `color-scheme` leur dit que la page
+# gère elle-même les deux thèmes : elles cessent d'inverser de force et
+# appliquent ces règles à la place.
+STYLE_SOMBRE = """
+:root { color-scheme: light dark; supported-color-schemes: light dark; }
+@media (prefers-color-scheme: dark) {
+  .page    { background:#0b1120 !important; }
+  .feuille { background:#111827 !important; }
+  .cadre   { background:#1f2937 !important; border-color:#374151 !important; }
+  .encre   { color:#f3f4f6 !important; }
+  .sourdine{ color:#9ca3af !important; }
+  .separe  { border-color:#374151 !important; }
+}
+"""
+
+# Deux familles de blocs, et la distinction n'est pas cosmétique.
+#
+#   .cadre  conteneurs NEUTRES (le onze, la pastille de contrôle). Ils passent
+#           au sombre, et le texte qu'ils portent est marqué `.encre` pour
+#           s'éclaircir avec eux.
+#   (rien)  cartes COLORÉES (décisions, ligues). Fond clair et texte foncé
+#           FIXES tous les deux : elles restent lisibles dans les deux thèmes
+#           sans qu'aucune règle ne s'applique. C'est le piège de la première
+#           version — un texte marqué `.encre` s'éclaircissait sur un fond qui,
+#           lui, restait clair, et disparaissait.
+
+
+def render_html(rec, maintenant=None, pieces=None):
     """Le mail. Décision, puis pourquoi, puis le onze, puis le contexte."""
     v = rec.get("verdict")
     etat = v.state if v is not None else "avertissement"
@@ -366,71 +482,81 @@ def render_html(rec, maintenant=None):
     h = _heures(rec.get("deadline"), maintenant)
     verts = sum(1 for c in (v.checks if v is not None else []) if c.state == "accepté")
     total = len(v.checks) if v is not None else 0
+    police = ("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,"
+              "sans-serif")
 
     alertes_html = "".join(
-        f'<li style="margin:0 0 7px;">{_gras(a)}</li>' for a in alertes(rec))
+        f'<li style="margin:0 0 8px;">{_gras(a)}</li>' for a in alertes(rec))
+
+    def titre(t):
+        return (f'<p class="sourdine" style="margin:26px 0 10px;font:800 11px/1.4 '
+                f'{police};letter-spacing:.1em;text-transform:uppercase;'
+                f'color:{GRIS};">{_echap(t)}</p>')
 
     corps = f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-       style="background:#f3f4f6;padding:20px 12px;">
+       class="page" style="background:#eef2f7;padding:18px 10px;">
 <tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0"
-       style="max-width:600px;width:100%;background:{FOND};border-radius:14px;
-              overflow:hidden;">
+       class="feuille" style="max-width:600px;width:100%;background:{FOND};
+              border-radius:16px;overflow:hidden;">
 
-  <tr><td style="padding:22px 24px 18px;border-bottom:1px solid {TRAIT};">
+  <tr><td style="padding:20px 22px 16px;background:{couleur};">
     <table role="presentation" width="100%"><tr>
-      <td style="font:800 26px/1.15 -apple-system,BlinkMacSystemFont,'Segoe UI',
-                 Roboto,Arial,sans-serif;color:{ENCRE};">GW{rec['gw']}</td>
-      <td align="right" style="font:600 12px/1.4 -apple-system,
-                 BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
-        <span style="background:{couleur};color:#ffffff;padding:4px 10px;
-                     border-radius:20px;">{pastille}</span></td>
+      <td style="font:800 27px/1.1 {police};color:#ffffff;">GW{rec['gw']}</td>
+      <td align="right" style="font:800 12px/1.4 {police};">
+        <span style="background:rgba(255,255,255,.22);color:#ffffff;
+                     padding:5px 11px;border-radius:999px;">{pastille}</span></td>
     </tr></table>
-    <div style="margin-top:6px;font:600 15px/1.4 -apple-system,
-                BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
-                color:{couleur};">{_echap(_quand(h).capitalize())} pour jouer.</div>
+    <div style="margin-top:5px;font:700 16px/1.4 {police};color:#ffffff;">
+      {_echap(_quand(h).capitalize())} pour jouer.</div>
   </td></tr>
 
-  <tr><td style="padding:4px 24px 0;">
-    {_titre("Ce que tu fais")}
+  <tr><td style="padding:6px 22px 0;">
+    {titre("Ce que tu fais")}
     {_decisions_html(rec)}
   </td></tr>
 
-  <tr><td style="padding:0 24px;">
-    {_titre("Pourquoi — dans l'ordre")}
+  <tr><td style="padding:0 22px;">
+    {titre("Pourquoi — dans l'ordre")}
     {_chaine_html(rec)}
   </td></tr>
 
-  <tr><td style="padding:0 24px;">
-    {_titre("Ton onze")}
+  <tr><td style="padding:0 22px;">
+    {titre("Ton onze")}
     {_pelouse(rec)}
   </td></tr>
 
-  <tr><td style="padding:0 24px;">
-    {_titre("Ce qui te ferait changer d'avis")}
-    <ul style="margin:0;padding-left:20px;font:400 14px/1.6 -apple-system,
-               BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
-               color:{ENCRE};">{alertes_html}</ul>
+  <tr><td style="padding:0 22px;">
+    {titre("Ce qui te ferait changer d'avis")}
+    <ul class="encre" style="margin:0;padding-left:20px;font:400 14px/1.6
+               {police};color:{ENCRE};">{alertes_html}</ul>
   </td></tr>
 
-  <tr><td style="padding:0 24px;">
-    {_titre("Tes ligues")}
+  <tr><td style="padding:0 22px;">
+    {titre("Tes ligues")}
     {_ligues_html(rec)}
   </td></tr>
 
-  <tr><td style="padding:24px;">
-    <div style="border-top:1px solid {TRAIT};padding-top:14px;
-                font:400 12px/1.65 -apple-system,BlinkMacSystemFont,'Segoe UI',
-                Roboto,Arial,sans-serif;color:{GRIS};">
-      <strong style="color:{ENCRE};">{verts}/{total} contrôles au vert.</strong>
-      Ça veut dire que rien d'anormal n'a été détecté — pas que les prévisions
-      sont justes. Aucune constante de ce moteur n'a encore été confrontée à un
-      résultat réel. Le premier vrai score arrive après les matchs.<br><br>
-      Le détail complet est en pièce jointe : les douze contrôles, les
-      projections joueur par joueur, les trois scénarios, les hypothèses.<br><br>
-      Données connues au {_echap(_date_courte(rec.get('as_of')))}. Prix de vente
-      approximé par le prix affiché — vérifie dans l'app avant d'exécuter.
+  <tr><td style="padding:20px 22px 24px;">
+    <div class="separe" style="border-top:1px solid {TRAIT};padding-top:14px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr><td class="cadre encre" style="background:{CARTE};
+                   border:1px solid {TRAIT};border-radius:10px;
+                   padding:11px 14px;font:700 13px/1.4 {police};
+                   color:{ENCRE};">{verts}/{total} contrôles au vert</td></tr>
+      </table>
+      <div class="sourdine" style="margin-top:12px;font:400 12px/1.65 {police};
+                  color:{GRIS};">
+        Ça veut dire que rien d'anormal n'a été détecté — pas que les
+        prévisions sont justes. Aucune constante de ce moteur n'a encore été
+        confrontée à un résultat réel. Le premier vrai score arrive après les
+        matchs.<br><br>
+        {_phrase_pieces(pieces)}<br><br>
+        Données connues au {_echap(_date_courte(rec.get('as_of')))}. Prix de
+        vente approximé par le prix affiché — vérifie dans l'app avant
+        d'exécuter.
+      </div>
     </div>
   </td></tr>
 
@@ -439,13 +565,14 @@ def render_html(rec, maintenant=None):
 
     return (f'<!doctype html><html lang="fr"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<meta name="color-scheme" content="light">'
-            f'<title>GW{rec["gw"]}</title></head>'
-            f'<body style="margin:0;padding:0;background:#f3f4f6;">'
+            f'<meta name="color-scheme" content="light dark">'
+            f'<meta name="supported-color-schemes" content="light dark">'
+            f'<title>GW{rec["gw"]}</title><style>{STYLE_SOMBRE}</style></head>'
+            f'<body class="page" style="margin:0;padding:0;background:#eef2f7;">'
             f'{corps}</body></html>')
 
 
-def render_texte(rec, maintenant=None):
+def render_texte(rec, maintenant=None, pieces=None):
     """Version texte. Certains clients ne montrent que celle-là."""
     v = rec.get("verdict")
     h = _heures(rec.get("deadline"), maintenant)
@@ -486,9 +613,12 @@ def render_texte(rec, maintenant=None):
 
     verts = sum(1 for c in (v.checks if v is not None else []) if c.state == "accepté")
     total = len(v.checks) if v is not None else 0
+    pj = (("En pièce(s) jointe(s) : " + ", ".join(pieces)
+           + " — le rapport complet.") if pieces else
+          "Aucune pièce jointe dans cet envoi ; le rapport complet reste sous "
+          "data/reports/.")
     out += ["", f"{verts}/{total} contrôles au vert. Rien d'anormal détecté — ce "
-                "n'est pas une preuve que les prévisions sont justes. Le détail "
-                "complet est en pièce jointe.",
+                f"n'est pas une preuve que les prévisions sont justes. {pj}",
             f"Données connues au {_date_courte(rec.get('as_of'))}. Prix de vente "
             "approximé par le prix affiché : vérifie dans l'app."]
     return "\n".join(out)

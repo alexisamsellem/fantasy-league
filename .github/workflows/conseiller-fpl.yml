@@ -91,14 +91,16 @@ jobs:
         if: steps.secrets.outputs.ok == 'true'
         run: python3 -m fpl_advisor collect --with-history
 
-      - name: Décision de la semaine
-        if: steps.secrets.outputs.ok == 'true'
-        run: python3 -m fpl_advisor advise
-
+      # L'audit passe AVANT la décision : c'est `advise` qui rédige le mail,
+      # et le mail ne doit annoncer que des pièces jointes déjà sur disque.
       - name: Audit d'effectif
         if: steps.secrets.outputs.ok == 'true'
         continue-on-error: true      # diagnostic : son échec ne doit rien bloquer
         run: python3 -m fpl_advisor audit-effectif
+
+      - name: Décision de la semaine (rédige aussi le mail)
+        if: steps.secrets.outputs.ok == 'true'
+        run: python3 -m fpl_advisor advise
 
       - name: Figer les projections (aucune donnée personnelle)
         if: steps.secrets.outputs.ok == 'true'
