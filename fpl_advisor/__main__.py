@@ -26,8 +26,8 @@ from .evaluation import calibration
 from .evaluation.bench import build_bench, write_bench
 from .forecasting import ProjectionSet
 from .initial import build_contract, build_from_contract
-from .report import (write_audit, write_calibration, write_initial_report,
-                     write_report)
+from .report import (write_audit, write_calibration, write_email,
+                     write_initial_report, write_report)
 from .optimization.audit import PATH_WEEKS
 from .wiring import selection_backend
 
@@ -35,10 +35,12 @@ from .wiring import selection_backend
 def _advise(parsed, data_dir, freeze_to=None):
     rec = build_recommendation(parsed, freeze_to=freeze_to)
     path = write_report(rec, data_dir)
+    html, texte = write_email(rec, data_dir)
     band, v = rec["armband"], rec["verdict"]
     if rec.get("frozen_projections"):
         print(f"Projections figées : {rec['frozen_projections']}")
     print(f"Rapport : {path}")
+    print(f"Mail : {html} (+ {texte.name})")
     print(f"GW{rec['gw']} — {v.label} : capitaine {band['captain']['web_name']}, "
           f"vice {band['vice']['web_name']} ; transfert : {rec['transfer']['decision']}")
     print(f"Contrôle qualité : {v.state.upper()} — {v.summary}")

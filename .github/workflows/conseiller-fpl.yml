@@ -143,11 +143,21 @@ jobs:
         run: |
           RECO=$(ls -t data/reports/GW*-recommandation-*.md 2>/dev/null | head -1)
           AUDIT=$(ls -t data/reports/GW*-audit-effectif-*.md 2>/dev/null | head -1)
-          if [ -z "$RECO" ]; then
-            echo "::error::Aucun rapport de recommandation produit."
+          HTML="data/reports/GW${GW}-mail.html"
+          TEXTE="data/reports/GW${GW}-mail.txt"
+          SUJET_F="data/reports/GW${GW}-sujet.txt"
+          if [ ! -f "$TEXTE" ]; then
+            echo "::error::Aucun mail produit par advise."
             exit 1
           fi
-          ARGS=(--sujet "FPL GW${GW} — deadline dans ${HEURES} h" --corps "$RECO")
+          # Le sujet vient du moteur : il porte l'échange et le capitaine, pas
+          # seulement le numéro de journée.
+          SUJET=$(cat "$SUJET_F" 2>/dev/null || echo "FPL GW${GW} — deadline dans ${HEURES} h")
+          ARGS=(--sujet "$SUJET" --corps "$TEXTE")
+          if [ -f "$HTML" ]; then ARGS+=(--html "$HTML"); fi
+          # Le rapport complet et l'audit partent en pièce jointe : le mail
+          # décide, les pièces jointes prouvent.
+          if [ -n "$RECO" ]; then ARGS+=(--piece-jointe "$RECO"); fi
           if [ -n "$AUDIT" ]; then ARGS+=(--piece-jointe "$AUDIT"); fi
           python3 scripts/envoyer_rapport.py "${ARGS[@]}"
 

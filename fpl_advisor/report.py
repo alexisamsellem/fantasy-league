@@ -8,7 +8,7 @@ Le rapport contient des données personnelles (effectif, ligue, noms) : il est
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import rivals
+from . import mail, rivals
 from .evaluation import quality
 
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
@@ -463,6 +463,23 @@ def write_report(rec, data_dir="data"):
     path = out / f"GW{rec['gw']}-recommandation-{ts}.md"
     path.write_text(render(rec), encoding="utf-8")
     return path
+
+
+def write_email(rec, data_dir="data"):
+    """Écrit le mail de la semaine, HTML et texte, à côté du rapport complet.
+
+    Les deux formes sont produites ensemble et jamais séparément : un client
+    qui n'affiche que le texte doit recevoir la même décision, pas un résumé
+    appauvri."""
+    out = Path(data_dir) / "reports"
+    out.mkdir(parents=True, exist_ok=True)
+    base = out / f"GW{rec['gw']}-mail"
+    html = base.with_suffix(".html")
+    texte = base.with_suffix(".txt")
+    html.write_text(mail.render_html(rec), encoding="utf-8")
+    texte.write_text(mail.render_texte(rec), encoding="utf-8")
+    (out / f"GW{rec['gw']}-sujet.txt").write_text(mail.sujet(rec), encoding="utf-8")
+    return html, texte
 
 
 def render_initial(rec):

@@ -42,12 +42,16 @@ def _env(cle, defaut=None, requis=False):
     return v
 
 
-def construire(sujet, corps_md, pieces, expediteur, destinataire):
+def construire(sujet, corps_md, pieces, expediteur, destinataire, html=None):
+    """Message multipart. Le texte est TOUJOURS présent, même avec du HTML :
+    certains clients n'affichent que lui, et il doit porter la même décision."""
     msg = EmailMessage()
     msg["Subject"] = sujet
     msg["From"] = expediteur
     msg["To"] = destinataire
     msg.set_content(corps_md[:MAX_CORPS] or "(rapport vide)")
+    if html:
+        msg.add_alternative(html[:MAX_CORPS], subtype="html")
     for chemin in pieces:
         p = Path(chemin)
         if not p.exists():
@@ -63,6 +67,8 @@ def main(argv=None):
     ap.add_argument("--sujet", required=True)
     ap.add_argument("--corps", help="fichier Markdown mis dans le corps du mail")
     ap.add_argument("--texte", help="corps littéral, si aucun fichier")
+    ap.add_argument("--html", help="fichier HTML servant de version enrichie ; "
+                                   "le texte reste envoyé en repli")
     ap.add_argument("--piece-jointe", action="append", default=[],
                     help="fichier à joindre (répétable)")
     args = ap.parse_args(argv)
@@ -80,7 +86,15 @@ def main(argv=None):
             raise SystemExit(f"Corps introuvable : {p}")
         corps = p.read_text(encoding="utf-8")
 
-    msg = construire(args.sujet, corps, args.piece_jointe, utilisateur, destinataire)
+    html = None
+    if args.html:
+        ph = Path(args.html)
+        if not ph.exists():
+            raise SystemExit(f"HTML introuvable : {ph}")
+        html = ph.read_text(encoding="utf-8")
+
+    msg = construire(args.sujet, corps, args.piece_jointe, utilisateur,
+                     destinataire, html=html)
     contexte = ssl.create_default_context()
     try:
         if port == 465:
@@ -103,7 +117,8 @@ def main(argv=None):
 
     # Ni le sujet complet, ni le corps : les journaux de CI se relisent.
     print(f"Mail envoyé à {destinataire[:3]}…@… "
-          f"({len(args.piece_jointe)} pièce(s) jointe(s)).")
+          f"({len(args.piece_jointe)} pièce(s) jointe(s), "
+          f"{'HTML + texte' if html else 'texte seul'}).")
     return 0
 
 

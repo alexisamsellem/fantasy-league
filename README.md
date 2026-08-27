@@ -83,6 +83,13 @@ heures. Ensuite il collecte, décide, audite, fige les projections dans le
 dépôt, et envoie le rapport par e-mail. Un second job note les journées jouées
 et verse les calibrations sous `calibrations/`.
 
+Le mail lui-même est court : la décision en tête, puis POURQUOI, dans l'ordre —
+quel fait a produit quelle conséquence. Le rapport Markdown complet (douze
+contrôles, projections joueur par joueur, trois scénarios) part en pièce
+jointe : le mail décide, les pièces jointes prouvent. HTML et texte sont
+produits ensemble, et un test vérifie qu'ils portent la même équipe — un client
+qui n'affiche que le texte ne doit pas recevoir une autre décision.
+
 Aucune donnée personnelle n'entre dans Git : les rapports partent en pièce
 jointe et en artefact privé (30 jours), jamais en commit.
 
