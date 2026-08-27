@@ -105,7 +105,8 @@ def main(argv=None):
                          "de l'effectif détenu, qui reste hors du contrat")
     ap.add_argument("--from-snapshot", metavar="DOSSIER",
                     help="freeze : réutilise un snapshot déjà collecté au lieu "
-                         "d'en collecter un nouveau")
+                         "d'en collecter un nouveau. La valeur `dernier` prend "
+                         "le snapshot le plus récent de --data-dir")
     ap.add_argument("--semaines", type=int, default=PATH_WEEKS,
                     help="audit-effectif : longueur du chemin de transferts "
                          f"proposé (défaut {PATH_WEEKS}, un transfert gratuit "
@@ -131,7 +132,13 @@ def main(argv=None):
                 "sert qu'à écrire la trace point-in-time des projections.\n"
                 "  python3 -m fpl_advisor freeze --with-history "
                 "--freeze-projections data/projections-GW<n>.json")
-        if args.from_snapshot:
+        if args.from_snapshot == "dernier":
+            run_dir = latest_snapshot_dir(args.data_dir)
+            if run_dir is None:
+                raise SystemExit(
+                    f"Aucun snapshot sous {args.data_dir}/snapshots : lancer "
+                    "d'abord `python3 -m fpl_advisor collect`.")
+        elif args.from_snapshot:
             run_dir = args.from_snapshot
         else:
             run_dir = collect_public(args.data_dir, with_history=args.with_history)

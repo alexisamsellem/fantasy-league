@@ -19,9 +19,20 @@ python3 -m unittest discover -s tests && python3 -m fpl_advisor run
 
 Le `cp` copie un gabarit rempli de zéros : il faut l'**éditer**. Laissé tel
 quel, il est refusé avec un message explicite plutôt que de lancer une collecte
-de 404. Où trouver `team_id` et `league_id` : `docs/guide-j0.md`, sections 2
-et 3 — les deux se lisent dans les URLs de `fantasy.premierleague.com`.
-Prérequis : Python 3.9+, aucune dépendance obligatoire.
+de 404. Où trouver `team_id` et les identifiants de ligue :
+`docs/guide-j0.md`, sections 2 et 3 — les deux se lisent dans les URLs de
+`fantasy.premierleague.com`. Prérequis : Python 3.9+, aucune dépendance
+obligatoire.
+
+**Plusieurs mini-ligues peuvent compter à la fois** : `league_ids` accepte une
+liste. Elles ne sont jamais moyennées — chacune garde son classement, sa
+lecture de position et son exposition, et le rapport nomme les joueurs sur
+lesquels les ligues ne disent pas la même chose. La forme ancienne
+`"league_id": 123` reste acceptée.
+
+```json
+{ "team_id": 1234567, "league_ids": [1228883, 1542490] }
+```
 
 `run` collecte les données publiques FPL (snapshot immuable horodaté sous
 `data/snapshots/`), met à jour `data/fpl.duckdb`, puis écrit la recommandation
@@ -62,6 +73,32 @@ suivante), `audit-effectif` et `freeze` (sections ci-dessous).
 `--freeze-projections FICHIER` fonctionne aussi sur `advise` et `run` : il
 écrit la trace auditable des projections utilisées, sans aucune donnée
 personnelle.
+
+## Le faire tourner tout seul (GitHub Actions)
+
+`.github/workflows/conseiller-fpl.yml` remplace la machine du manager. Deux
+passages par jour : un portier regarde d'abord combien d'heures restent avant
+la deadline (une seule requête) et ne va plus loin que dans les 60 dernières
+heures. Ensuite il collecte, décide, audite, fige les projections dans le
+dépôt, et envoie le rapport par e-mail. Un second job note les journées jouées
+et verse les calibrations sous `calibrations/`.
+
+Aucune donnée personnelle n'entre dans Git : les rapports partent en pièce
+jointe et en artefact privé (30 jours), jamais en commit.
+
+Secrets à créer dans **Settings → Secrets and variables → Actions** :
+
+| Secret | Contenu |
+|---|---|
+| `FPL_TEAM_ID` | les chiffres de l'URL `/entry/<id>/` |
+| `FPL_LEAGUE_IDS` | les ligues séparées par des virgules : `1228883,1542490` |
+| `SMTP_UTILISATEUR` | l'adresse d'envoi |
+| `SMTP_MOTDEPASSE` | un **mot de passe d'application** Gmail, jamais celui du compte |
+| `MAIL_DESTINATAIRE` | facultatif ; par défaut `SMTP_UTILISATEUR` |
+
+**Un déclencheur `schedule` ne s'exécute que depuis la branche par défaut du
+dépôt.** Tant que ce fichier n'y est pas, seul le bouton « Run workflow »
+(`workflow_dispatch`) fonctionne.
 
 ## Audit d'effectif : où le modèle diverge de mon équipe
 

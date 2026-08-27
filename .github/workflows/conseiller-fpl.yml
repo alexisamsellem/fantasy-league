@@ -1,0 +1,215 @@
+# Conseiller FPL — exécution automatique.
+#
+# Ce fichier remplace la machine du manager. Il fait tourner le conseiller dans
+# le cloud, garde les projections figées dans le dépôt, et envoie le rapport par
+# e-mail. Aucune donnée personnelle n'entre dans Git : ni l'effectif, ni les
+# rapports, ni les identifiants.
+#
+# ATTENTION — un déclencheur `schedule` ne s'exécute QUE depuis la branche par
+# défaut du dépôt. Tant que ce fichier n'y est pas, seul `workflow_dispatch`
+# (bouton « Run workflow ») fonctionne.
+#
+# Secrets à créer dans Settings → Secrets and variables → Actions :
+#   FPL_TEAM_ID        identifiant du manager (chiffres de l'URL /entry/<id>/)
+#   FPL_LEAGUE_IDS     ligues à suivre, séparées par des virgules : "123,456"
+#   SMTP_UTILISATEUR   adresse d'envoi
+#   SMTP_MOTDEPASSE    MOT DE PASSE D'APPLICATION (Gmail), jamais celui du compte
+#   MAIL_DESTINATAIRE  facultatif ; par défaut, SMTP_UTILISATEUR
+
+name: Conseiller FPL
+
+on:
+  schedule:
+    # Deux passages par jour en heure UTC. Le portier de deadline décide s'il y
+    # a lieu d'aller plus loin : hors des 60 h précédant une deadline, le job
+    # s'arrête après une requête.
+    - cron: "0 8 * * *"
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+    inputs:
+      forcer:
+        description: "Ignorer le portier de deadline et tout exécuter"
+        type: boolean
+        default: false
+
+concurrency:
+  group: conseiller-fpl
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # pour verser les projections figées (données publiques)
+
+jobs:
+  conseil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Tests (un moteur cassé ne conseille rien)
+        run: python3 -m unittest discover -s tests
+
+      - name: Combien d'heures avant la deadline ?
+        id: portier
+        run: python3 scripts/prochaine_deadline.py --seuil 60
+
+      - name: Vérifier que les secrets existent
+        id: secrets
+        if: steps.portier.outputs.agir == 'true' || inputs.forcer
+        env:
+          TEAM: ${{ secrets.FPL_TEAM_ID }}
+          LIGUES: ${{ secrets.FPL_LEAGUE_IDS }}
+        run: |
+          if [ -z "$TEAM" ] || [ -z "$LIGUES" ]; then
+            echo "::error::FPL_TEAM_ID ou FPL_LEAGUE_IDS absent des secrets du dépôt."
+            exit 1
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Référence d'équipe et configuration locale
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          TEAM: ${{ secrets.FPL_TEAM_ID }}
+          LIGUES: ${{ secrets.FPL_LEAGUE_IDS }}
+        run: |
+          mkdir -p data/reference
+          cp reference/team_priors.csv data/reference/team_priors.csv
+          python3 - <<'PY'
+          import json, os
+          ligues = [int(x) for x in os.environ["LIGUES"].replace(" ", "").split(",") if x]
+          cfg = {"team_id": int(os.environ["TEAM"]), "league_ids": ligues}
+          with open("config.local.json", "w", encoding="utf-8") as fh:
+              json.dump(cfg, fh)
+          print(f"Configuration écrite : {len(ligues)} ligue(s).")
+          PY
+
+      - name: Collecte (données publiques, lecture seule)
+        if: steps.secrets.outputs.ok == 'true'
+        run: python3 -m fpl_advisor collect --with-history
+
+      - name: Décision de la semaine
+        if: steps.secrets.outputs.ok == 'true'
+        run: python3 -m fpl_advisor advise
+
+      - name: Audit d'effectif
+        if: steps.secrets.outputs.ok == 'true'
+        continue-on-error: true      # diagnostic : son échec ne doit rien bloquer
+        run: python3 -m fpl_advisor audit-effectif
+
+      - name: Figer les projections (aucune donnée personnelle)
+        if: steps.secrets.outputs.ok == 'true'
+        env:
+          GW: ${{ steps.portier.outputs.gw }}
+        run: |
+          python3 -m fpl_advisor freeze --from-snapshot dernier \
+            --freeze-projections "projections-figees/projections-GW${GW}.json.gz"
+
+      - name: Verser le figeage au dépôt
+        if: steps.secrets.outputs.ok == 'true'
+        run: |
+          git config user.name "conseiller-fpl[bot]"
+          git config user.email "conseiller-fpl@users.noreply.github.com"
+          git add projections-figees/
+          if git diff --cached --quiet; then
+            echo "Figeage inchangé, rien à verser."
+          else
+            git commit -m "Fige les projections GW${{ steps.portier.outputs.gw }} (automatique)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Conserver les rapports (privés, 30 jours)
+        if: steps.secrets.outputs.ok == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapports-gw${{ steps.portier.outputs.gw }}
+          path: data/reports/*.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Envoyer le rapport par e-mail
+        if: steps.secrets.outputs.ok == 'true'
+        shell: bash
+        env:
+          SMTP_UTILISATEUR: ${{ secrets.SMTP_UTILISATEUR }}
+          SMTP_MOTDEPASSE: ${{ secrets.SMTP_MOTDEPASSE }}
+          MAIL_DESTINATAIRE: ${{ secrets.MAIL_DESTINATAIRE }}
+          GW: ${{ steps.portier.outputs.gw }}
+          HEURES: ${{ steps.portier.outputs.heures }}
+        run: |
+          RECO=$(ls -t data/reports/GW*-recommandation-*.md 2>/dev/null | head -1)
+          AUDIT=$(ls -t data/reports/GW*-audit-effectif-*.md 2>/dev/null | head -1)
+          if [ -z "$RECO" ]; then
+            echo "::error::Aucun rapport de recommandation produit."
+            exit 1
+          fi
+          ARGS=(--sujet "FPL GW${GW} — deadline dans ${HEURES} h" --corps "$RECO")
+          if [ -n "$AUDIT" ]; then ARGS+=(--piece-jointe "$AUDIT"); fi
+          python3 scripts/envoyer_rapport.py "${ARGS[@]}"
+
+  calibration:
+    # Noter les journées jouées. Séparé du conseil : ça ne dépend d'aucun
+    # secret, d'aucun effectif, et ça doit tourner même quand aucune deadline
+    # n'approche.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Collecte publique (résultats des journées closes)
+        run: |
+          mkdir -p data/reference
+          cp reference/team_priors.csv data/reference/team_priors.csv
+          python3 - <<'PY'
+          from fpl_advisor.collect import collect_public
+          print("Snapshot :", collect_public("data"))
+          PY
+
+      - name: Noter les journées figées et jouées
+        id: noter
+        run: python3 scripts/calibrer_en_attente.py | tee /tmp/calibration.txt
+
+      - name: Verser les rapports de calibration (aucune donnée personnelle)
+        run: |
+          git config user.name "conseiller-fpl[bot]"
+          git config user.email "conseiller-fpl@users.noreply.github.com"
+          git add calibrations/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Aucune nouvelle calibration."
+          else
+            git commit -m "Calibration : nouvelles journées notées (automatique)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Le mail est-il configuré ?
+        id: mail
+        env:
+          U: ${{ secrets.SMTP_UTILISATEUR }}
+        run: |
+          if [ -n "$U" ]; then echo "ok=true" >> "$GITHUB_OUTPUT";
+          else echo "SMTP_UTILISATEUR absent : pas d'envoi."; fi
+
+      - name: Envoyer le score par e-mail, s'il y en a un nouveau
+        if: steps.mail.outputs.ok == 'true'
+        env:
+          SMTP_UTILISATEUR: ${{ secrets.SMTP_UTILISATEUR }}
+          SMTP_MOTDEPASSE: ${{ secrets.SMTP_MOTDEPASSE }}
+          MAIL_DESTINATAIRE: ${{ secrets.MAIL_DESTINATAIRE }}
+        run: |
+          if grep -q "^0 journée" /tmp/calibration.txt; then
+            echo "Rien de neuf à annoncer."
+            exit 0
+          fi
+          python3 scripts/envoyer_rapport.py \
+            --sujet "FPL — nouveau score de calibration" \
+            --texte "$(cat /tmp/calibration.txt)" \
+            $(for f in calibrations/*.md; do printf ' --piece-jointe %s' "$f"; done)
