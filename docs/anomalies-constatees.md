@@ -137,3 +137,45 @@ inaperçu.
 
 **Ce que ça ne change pas** : aucune constante, aucune projection. Le calcul
 est identique, il est simplement devenu lisible.
+
+
+## A5 — La reconstruction d'effectif pouvait annoncer un retard négatif — CORRIGÉ
+
+**Constaté le** 27/08/2026, pendant la construction de l'audit d'effectif
+comparatif, avant toute publication.
+**Présent depuis** le commit `222a0b0` (V0) — c'est une propriété de
+`optimize_squad`, partagée avec le mode effectif initial.
+**Sévérité** : haute pour l'audit — le chiffre de tête du rapport pouvait
+inverser sa conclusion.
+
+`optimization/initial.py` optimise par montée locale à partir de l'effectif le
+moins cher. Une montée locale ne rend pas le même résultat selon son point de
+départ : elle s'arrête au premier sommet atteint. Rien ne garantit donc que
+l'effectif reconstruit vaille au moins l'effectif détenu, même à budget égal.
+
+Mesuré sur le jeu de démonstration : à la valeur d'équipe du manager, la
+reconstruction partant du moins cher plafonne **0,91 pt en dessous** de
+l'effectif détenu sur 4 GW. Le rapport d'audit aurait affiché « retard :
+−0,9 pt », c'est-à-dire « votre équipe bat le modèle » — alors que la seule
+chose démontrée était l'échec de la montée à retrouver un sommet déjà connu.
+
+**Correction** : `optimize_squad` accepte un point de départ (`start`), et
+`optimization/audit.rebuild` fait la montée **deux fois** — depuis l'effectif
+le moins cher, comme avant, et depuis l'effectif détenu — puis garde le
+meilleur des deux. Le vivier est élargi aux joueurs détenus, sans quoi un
+échange ne pourrait jamais les faire revenir.
+
+Conséquence à écrire dans le rapport : l'écart mesuré est un **minorant** du
+gain disponible, jamais un optimum démontré. Un audit qui conclut « aucun
+retard » dit seulement que le moteur n'a pas trouvé mieux à partir de ces deux
+points de départ.
+
+Test de régression dans `tests/test_audit.py`
+(`test_la_reconstruction_ne_peut_pas_valoir_moins_que_le_detenu`) : il vérifie
+d'abord que le jeu de démo exerce bien le défaut (la montée depuis le moins
+cher reste sous l'effectif détenu), puis que la reconstruction à deux départs
+le corrige.
+
+**Ce que ça ne change pas** : aucune projection, et aucun chiffre des modes
+existants. `optimize_squad` sans `start` se comporte exactement comme avant —
+un test l'affirme, à effectif et valeur identiques.

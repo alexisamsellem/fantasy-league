@@ -7,14 +7,18 @@
   python3 -m fpl_advisor demo           # bout-en-bout sur données synthétiques
   python3 -m fpl_advisor initial-squad  # effectif initial 15 joueurs (sans config)
   python3 -m fpl_advisor initial-bench  # banc d'essai : interne vs baseline publique
+  python3 -m fpl_advisor audit-effectif # effectif détenu vs effectif reconstruit
+  python3 -m fpl_advisor freeze         # fige les projections, sans config ni effectif
   python3 -m fpl_advisor calibrate      # probabilités figées vs résultats réels
 """
 
 import argparse
 import sys
 
+from . import weekly
 from .advise import build_recommendation
 from .api import load_config
+from .audit import build_audit
 from .collect import (collect_all, collect_public, latest_snapshot_dir,
                       load_duckdb, load_public_snapshot, load_snapshot,
                       observed_minutes)
@@ -22,7 +26,9 @@ from .evaluation import calibration
 from .evaluation.bench import build_bench, write_bench
 from .forecasting import ProjectionSet
 from .initial import build_contract, build_from_contract
-from .report import write_calibration, write_initial_report, write_report
+from .report import (write_audit, write_calibration, write_initial_report,
+                     write_report)
+from .optimization.audit import PATH_WEEKS
 from .wiring import selection_backend
 
 
@@ -35,6 +41,30 @@ def _advise(parsed, data_dir, freeze_to=None):
     print(f"Rapport : {path}")
     print(f"GW{rec['gw']} — {v.label} : capitaine {band['captain']['web_name']}, "
           f"vice {band['vice']['web_name']} ; transfert : {rec['transfer']['decision']}")
+    print(f"Contrôle qualité : {v.state.upper()} — {v.summary}")
+    return 0
+
+
+def _audit(parsed, data_dir, weeks, freeze_to=None):
+    rec = build_audit(parsed, freeze_to=freeze_to, weeks=weeks)
+    path = write_audit(rec, data_dir)
+    v = rec["verdict"]
+    if rec.get("frozen_projections"):
+        print(f"Projections figées : {rec['frozen_projections']}")
+    print(f"Rapport : {path}")
+    if rec["retard"] is None:
+        print(f"GW{rec['gw']} — écart non calculable : effectif incomplet.")
+    else:
+        print(f"GW{rec['gw']}–GW{rec['horizon'][-1]} — retard de l'effectif "
+              f"détenu : {rec['retard']:.1f} pts sur {len(rec['horizon'])} GW "
+              f"({rec['recouvrement']}/15 joueurs en commun avec l'effectif "
+              "reconstruit).")
+        ch = rec["chemin"]
+        if ch and ch["etapes"]:
+            print(f"Chemin proposé : {len(ch['etapes'])} transfert(s) gratuit(s) "
+                  f"sur {rec['semaines']} semaines, +{ch['gain_total']:.1f} pts.")
+        else:
+            print("Aucun échange un-pour-un n'améliore la valeur de l'effectif.")
     print(f"Contrôle qualité : {v.state.upper()} — {v.summary}")
     return 0
 
@@ -55,7 +85,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="fpl_advisor")
     ap.add_argument("command",
                     choices=["collect", "advise", "run", "demo", "initial-squad",
-                             "initial-bench", "calibrate"])
+                             "initial-bench", "audit-effectif", "freeze",
+                             "calibrate"])
     ap.add_argument("--config", default="config.local.json")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--demo", action="store_true",
@@ -72,6 +103,13 @@ def main(argv=None):
                          "collecte, aucun recalcul de prévision. Réservé à "
                          "initial-squad : le mode hebdomadaire a aussi besoin "
                          "de l'effectif détenu, qui reste hors du contrat")
+    ap.add_argument("--from-snapshot", metavar="DOSSIER",
+                    help="freeze : réutilise un snapshot déjà collecté au lieu "
+                         "d'en collecter un nouveau")
+    ap.add_argument("--semaines", type=int, default=PATH_WEEKS,
+                    help="audit-effectif : longueur du chemin de transferts "
+                         f"proposé (défaut {PATH_WEEKS}, un transfert gratuit "
+                         "par semaine)")
     ap.add_argument("--gw", type=int,
                     help="calibrate : GW à noter (par défaut, la GW de décision "
                          "du contrat figé)")
@@ -81,6 +119,34 @@ def main(argv=None):
                          "tant que la saison en cours n'a pas assez de journées "
                          "jouées pour porter seule la hiérarchie entre joueurs")
     args = ap.parse_args(argv)
+
+    if args.command == "freeze":
+        # Figer les projections ne demande NI config, NI team ID, NI effectif :
+        # le contrat est public par construction. C'est ce qui permet de
+        # produire la trace point-in-time exigée par `calibrate` depuis
+        # n'importe quelle machine, sans exposer la moindre donnée personnelle.
+        if not args.freeze_projections:
+            raise SystemExit(
+                "freeze exige --freeze-projections FICHIER : la commande ne "
+                "sert qu'à écrire la trace point-in-time des projections.\n"
+                "  python3 -m fpl_advisor freeze --with-history "
+                "--freeze-projections data/projections-GW<n>.json")
+        if args.from_snapshot:
+            run_dir = args.from_snapshot
+        else:
+            run_dir = collect_public(args.data_dir, with_history=args.with_history)
+        print(f"Snapshot : {run_dir}")
+        parsed = load_public_snapshot(run_dir)
+        contract = weekly.build_contract(parsed)
+        path = contract.save(args.freeze_projections)
+        print(f"Projections figées : {path}")
+        print(f"GW de décision {contract.gw} (horizon "
+              f"{contract.horizon[0]}–{contract.horizon[-1]}), deadline "
+              f"{contract.deadline}, connues au {contract.as_of}.")
+        print(f"Contrat v{contract.contract_version}, modèle "
+              f"{contract.model_version}, {len(contract.players)} joueurs — "
+              "aucune donnée personnelle.")
+        return 0
 
     if args.command == "calibrate":
         if not args.from_projections:
@@ -156,8 +222,10 @@ def main(argv=None):
     run_dir = latest_snapshot_dir(args.data_dir)
     if run_dir is None:
         raise SystemExit("Aucun snapshot : lancer d'abord `python3 -m fpl_advisor collect`.")
-    return _advise(load_snapshot(run_dir, cfg), args.data_dir,
-                   args.freeze_projections)
+    parsed = load_snapshot(run_dir, cfg)
+    if args.command == "audit-effectif":
+        return _audit(parsed, args.data_dir, args.semaines, args.freeze_projections)
+    return _advise(parsed, args.data_dir, args.freeze_projections)
 
 
 if __name__ == "__main__":

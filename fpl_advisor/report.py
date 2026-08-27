@@ -8,6 +8,8 @@ Le rapport contient des données personnelles (effectif, ligue, noms) : il est
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .evaluation import quality
+
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
 
 
@@ -644,4 +646,255 @@ def write_calibration(res, data_dir="data"):
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = out / f"GW{res['gw']}-calibration-{ts}.md"
     path.write_text(render_calibration(res), encoding="utf-8")
+    return path
+
+
+# ------------------------------------------------------------- audit ----
+
+def _audit_table(rows, teams, gws, titre, vide):
+    """Table joueur → prix → EP par GW → total. Rend la ligne « vide » quand
+    la liste l'est : une section absente et une section vide ne se lisent pas
+    pareil."""
+    lines = [f"\n### {titre}"]
+    if not rows:
+        return lines + [f"\n{vide}"]
+    lines += ["\n| Joueur | Poste | Club | Prix | "
+              + " | ".join(f"EP GW{g}" for g in gws) + " | Total | Alerte |",
+              "|" + "---|" * (6 + len(gws))]
+    order = {1: 0, 2: 1, 3: 2, 4: 3}
+    for r in sorted(rows, key=lambda x: (order[x["element_type"]], -x["ep4"])):
+        eps = " | ".join(f"{r['eps'][g]:.2f}" for g in gws)
+        lines.append(f"| {r['web_name']} | {POS[r['element_type']]} | "
+                     f"{teams.get(r['team'], r['team'])} | {r['now_cost'] / 10:.1f} | "
+                     f"{eps} | {r['ep4']:.2f} | {_alerte(r)} |")
+    return lines
+
+
+def render_audit(rec):
+    """Rapport de l'audit d'effectif comparatif.
+
+    Contient l'effectif détenu : données personnelles, écrit sous data/reports/
+    et jamais publiable tel quel."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    teams, gws = rec["teams"], rec["horizon"]
+    verdict = rec.get("verdict")
+    bloque = verdict is not None and verdict.state == "bloqué"
+    retard, chemin = rec["retard"], rec["chemin"]
+
+    titre = ("AUDIT TECHNIQUE — publication refusée" if bloque
+             else "audit d'effectif comparatif")
+    lines = [
+        f"# Effectif GW{rec['gw']}–GW{gws[-1]} — {titre}",
+    ]
+
+    # Le verdict d'abord : le chiffre qui décide, avant tout tableau.
+    if retard is None:
+        lines.append(
+            "\n> **ÉCART NON CALCULABLE.** L'effectif détenu n'a pas pu être "
+            "projeté en entier — voir le contrôle qualité ci-dessous.")
+    else:
+        lines.append(
+            f"\n> **Retard de l'effectif détenu : {retard:.1f} pts sur "
+            f"{len(gws)} GW** ({rec['valeur_detenue']:.1f} contre "
+            f"{rec['valeur_ideale']:.1f} pour l'effectif que le moteur "
+            f"achèterait à la même valeur d'équipe). Recouvrement : "
+            f"**{rec['recouvrement']}/15 joueurs** en commun.")
+        if chemin:
+            part = rec["part_rattrapee"]
+            part_txt = f" soit **{part:.0%}** de l'écart" if part is not None else ""
+            lines.append(
+                f"\n> Un transfert gratuit par semaine pendant "
+                f"{rec['semaines']} semaines en récupère "
+                f"**{chemin['gain_total']:.1f} pts**{part_txt} — "
+                f"{len(chemin['etapes'])} échange(s) trouvé(s).")
+
+    lines += [
+        f"\nGénéré le {now}. Deadline GW{rec['gw']} : {rec['deadline']}. "
+        f"Snapshot : `{rec['run_dir']}` (connu au {rec['as_of']}). Historique "
+        f"de minutes disponible : {rec['n_history_gws']} GW. Contrat de "
+        f"projections v{rec.get('contract_version', '?')} "
+        f"(modèle {rec.get('model_version', '?')}).",
+        "\nToutes les décisions restent soumises à validation humaine.",
+        "\n> **CE QUE CET AUDIT N'EST PAS.** Reconstruire un effectif de zéro "
+        "ignore le coût des transferts : l'écart ci-dessus n'est atteignable "
+        "qu'en quinze transferts simultanés, c'est-à-dire avec un wildcard. Il "
+        "mesure OÙ le modèle diverge de l'équipe détenue, pas ce qu'il faut "
+        "faire cette semaine. Le chemin de transferts en fin de rapport est la "
+        "seule partie actionnable — et sa première étape est la seule à "
+        "reposer sur des projections encore fraîches.",
+        "\n> **Prix de vente approximés par le prix affiché.** L'API publique "
+        "ne donne pas le prix d'achat : la valeur d'équipe reconstituée ici "
+        "peut être légèrement optimiste, et un échange annoncé faisable peut ne "
+        "pas l'être dans l'application. Vérifier avant d'agir.",
+        "\n> **L'écart est un minorant, pas un optimum.** L'effectif "
+        "reconstruit sort d'une montée locale, lancée depuis deux points de "
+        "départ (l'effectif le moins cher et l'effectif détenu) et gardant le "
+        "meilleur des deux. Elle s'arrête au premier sommet atteint : il existe "
+        "peut-être mieux. Un écart nul dit donc « le moteur n'a pas trouvé "
+        "mieux », pas « il n'y a rien de mieux » (anomalie A5).",
+    ]
+    if rec.get("synthetic"):
+        lines.append(
+            "\n> **DÉMO SYNTHÉTIQUE — AUCUNE VALEUR DE RECOMMANDATION.** Les "
+            "joueurs, clubs et historiques de ce rapport sont fabriqués.")
+    lines.append(
+        f"\n**Confiance de la couche de projection : {rec['confidence'].upper()}** "
+        f"— {rec['confidence_why']}.")
+
+    if verdict is not None:
+        lines += _quality_lines(
+            verdict, "Contrôle qualité des projections",
+            "Cet audit est un **diagnostic technique**. Ce n'est pas une "
+            "recommandation : au moins un contrôle bloquant a échoué. Les "
+            "chiffres ci-dessous restent calculés pour comprendre l'écart, pas "
+            "pour agir dessus.")
+
+    # Synthèse chiffrée
+    lines += [
+        "\n## Synthèse",
+        f"- Valeur d'équipe reconstituée : **{rec['budget'] / 10:.1f} M£** "
+        f"({rec['cout_detenu'] / 10:.1f} M£ d'effectif + "
+        f"{rec['bank'] / 10:.1f} M£ en banque) — pour mémoire, budget de "
+        f"départ FPL : {rec['budget_initial'] / 10:.1f} M£",
+        f"- Effectif reconstruit : **{rec['cout_ideal'] / 10:.1f} M£** engagés "
+        f"sur les {rec['budget'] / 10:.1f} disponibles",
+    ]
+    if retard is not None:
+        lines += [
+            f"- EP de l'effectif **détenu** sur GW{gws[0]}–GW{gws[-1]} : "
+            f"**{rec['valeur_detenue']:.1f} pts**",
+            f"- EP de l'effectif **reconstruit** : **{rec['valeur_ideale']:.1f} pts**",
+            f"- **Écart : {retard:.1f} pts** sur {len(gws)} GW, soit "
+            f"{retard / len(gws):.1f} pts par journée",
+        ]
+    lines.append(
+        "\nLes deux valeurs sont calculées de la même façon : meilleur XI de "
+        "chaque GW + bonus exact du brassard, aucun transfert supposé en cours "
+        "de route. C'est la mesure qui décide, jamais la somme des points "
+        "individuels — un remplaçant qui ne joue pas ne rapporte rien à "
+        "l'équipe (anomalie A2).")
+
+    # Divergence par poste
+    lines += [
+        "\n## Où le modèle diverge",
+        "\n| Poste | En commun | Détenus écartés | Retenus non détenus |",
+        "|---|---|---|---|",
+    ]
+    for et in (1, 2, 3, 4):
+        v = rec["par_poste"][et]
+        sortants = ", ".join(r["web_name"] for r in v["detenus_ecartes"]) or "—"
+        entrants = ", ".join(r["web_name"] for r in v["retenus_non_detenus"]) or "—"
+        lines.append(f"| {POS[et]} | {v['communs']} | {sortants} | {entrants} |")
+
+    lines += _audit_table(
+        rec["detenus_ecartes"], teams, gws,
+        "Joueurs détenus que le moteur n'achèterait pas",
+        "Aucun : le moteur rachèterait l'effectif à l'identique.")
+    lines += _audit_table(
+        rec["retenus_non_detenus"], teams, gws,
+        "Joueurs retenus par le moteur et non détenus",
+        "Aucun.")
+
+    # Chemin de transferts
+    lines += ["\n## Chemin de transferts proposé"]
+    if not chemin or not chemin["etapes"]:
+        lines.append(
+            "\nAucun échange un-pour-un n'améliore la valeur de l'effectif sous "
+            "ces projections. Ce n'est pas un satisfecit : l'écart mesuré plus "
+            "haut peut rester grand et n'être atteignable qu'en plusieurs "
+            "transferts simultanés.")
+    else:
+        lines += [
+            f"\nUn transfert gratuit par semaine, {rec['semaines']} semaines, "
+            "sans hit (hors périmètre V0). Chaque étape prend l'échange qui "
+            "ajoute le plus à la valeur de l'effectif, puis repart de l'équipe "
+            "obtenue.",
+            "\n| Semaine | Sortant | Entrant | Gain | Cumul | Banque après | "
+            f"> seuil hebdo ({chemin['seuil_hebdomadaire']:.1f}) |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for e in chemin["etapes"]:
+            o, i = e["out"], e["in_"]
+            lines.append(
+                f"| {e['semaine']} | {o['web_name']} ({POS[o['element_type']]}, "
+                f"{o['now_cost'] / 10:.1f}) | {i['web_name']} "
+                f"({POS[i['element_type']]}, {i['now_cost'] / 10:.1f}) | "
+                f"+{e['gain']:.2f} | +{e['cumul']:.2f} | "
+                f"{e['banque_apres'] / 10:.1f} M£ | "
+                f"{'oui' if e['au_dessus_du_seuil'] else 'NON'} |")
+        if len(chemin["etapes"]) < rec["semaines"]:
+            lines.append(
+                f"\nLa montée s'arrête après {len(chemin['etapes'])} échange(s) : "
+                "plus aucun un-pour-un n'améliore la valeur.")
+        lines += [
+            "\n> **Lire ce tableau dans l'ordre, et s'arrêter tôt.** Les "
+            "projections sont les mêmes à chaque étape : les prix ne bougent "
+            "pas, les blessures n'arrivent pas, et la GW la plus lointaine "
+            "n'est pas re-projetée. La semaine 1 est une recommandation ; les "
+            "suivantes sont une direction. Relancer l'audit chaque semaine "
+            "plutôt que de dérouler ce plan.",
+            "\n> C'est aussi une montée locale : la meilleure séquence de "
+            f"{rec['semaines']} transferts n'est pas forcément la suite des "
+            f"{rec['semaines']} meilleurs transferts pris un par un. La colonne "
+            "« > seuil hebdo » indique si l'étape passerait le seuil de "
+            "l'arbitrage hebdomadaire — une étape en dessous ne justifie pas "
+            "de brûler un transfert.",
+        ]
+
+    # Stabilité de l'effectif reconstruit
+    sc = rec["scenarios"]
+    lines += [
+        "\n## Stabilité de l'effectif reconstruit",
+        "\nL'écart chiffré plus haut ne vaut que si l'effectif « idéal » ne "
+        "change pas avec le jeu de priors retenu. Chaque scénario re-projette "
+        "tous les joueurs puis RE-OPTIMISE un effectif complet à la même valeur "
+        "d'équipe.",
+        "\n| Scénario | Effectif optimal du scénario | Effectif reconstruit évalué ici | Communs | Lecture |",
+        "|---|---|---|---|---|",
+    ]
+    for r in sc:
+        cv = f"{r['central_value']:.1f}" if r["central_value"] is not None else "n/a"
+        lines.append(f"| {r['label']} | {r['own_value']:.1f} pts | {cv} pts | "
+                     f"{r['overlap']}/15 | {r['note']} |")
+    lines.append(
+        f"\nRecouvrement minimal : **{rec['min_overlap']}/15** (seuil de "
+        f"stabilité : {quality.STABILITY_MIN_OVERLAP}/15). En dessous du seuil, "
+        "l'effectif reconstruit est UNE option parmi plusieurs équivalentes, et "
+        "l'écart chiffré mesure surtout le choix d'un prior.")
+
+    # Effectifs complets
+    lines += _audit_table(rec["owned"], teams, gws,
+                          "Effectif détenu (15 joueurs)", "Effectif illisible.")
+    lines += _audit_table(rec["rebuilt"], teams, gws,
+                          "Effectif reconstruit (15 joueurs)", "Non calculé.")
+
+    lines += [
+        "\n## Limites",
+        "- **Aucune constante de ce moteur n'est calibrée.** Les seuils et les "
+        "priors sont posés à la main [H] ; l'écart chiffré est celui d'un "
+        "modèle non prouvé, pas une vérité.",
+        "- L'audit suppose l'effectif détenu figé pendant les "
+        f"{len(gws)} GW pour le comparer à un effectif lui aussi figé. Les deux "
+        "côtés sont donc pénalisés de la même façon par l'absence de "
+        "transferts : c'est ce qui rend la comparaison lisible, et ce qui la "
+        "rend théorique.",
+        "- Ni chips, ni hits, ni prix de vente réels, ni évolution des prix.",
+        "- Un effectif stable et un écart faible ne démontrent pas que le "
+        "moteur a raison. Seule la calibration, mesurée après coup sur des "
+        "projections figées avant la deadline, tranchera.",
+    ]
+    if rec["missing_ids"]:
+        lines.append(
+            f"- **{len(rec['missing_ids'])} joueur(s) détenu(s) absent(s) du "
+            f"contrat de projections** ({', '.join(rec['missing_names'])}) : "
+            "tout chiffre ci-dessus est faux d'autant de joueurs.")
+    return "\n".join(lines) + "\n"
+
+
+def write_audit(rec, data_dir="data"):
+    out = Path(data_dir) / "reports"
+    out.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = out / f"GW{rec['gw']}-audit-effectif-{ts}.md"
+    path.write_text(render_audit(rec), encoding="utf-8")
     return path

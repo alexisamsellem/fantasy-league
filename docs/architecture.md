@@ -77,21 +77,38 @@ python3 -m fpl_advisor initial-squad --from-projections projections.json
 Le rapport produit par le second appel est identique au premier, à
 l'horodatage près. C'est la preuve opérationnelle que la frontière tient.
 
-## Les deux modes passent par le même chemin
+## Les trois modes passent par le même chemin
 
-Le dépôt prend deux sortes de décisions, avec la même mécanique :
+Le dépôt prend trois sortes de décisions, avec la même mécanique :
 
-| | Mode effectif initial (`initial.py`) | Mode hebdomadaire (`weekly.py`) |
-|---|---|---|
-| Question | quels 15 joueurs acheter avant la GW1 ? | que faire cette semaine de l'effectif que j'ai ? |
-| Horizon | 4 GW | 3 GW |
-| Ce qui est optimisé | l'effectif entier | le brassard, le XI, transférer ou conserver |
-| Ce qui est mesuré | recouvrement du top 15 entre scénarios | accord des décisions entre scénarios |
-| Porte qualité | `quality.assess` | `quality.assess_weekly` |
+| | Effectif initial (`initial.py`) | Hebdomadaire (`weekly.py`) | Audit d'effectif (`audit.py`) |
+|---|---|---|---|
+| Question | quels 15 joueurs acheter avant la GW1 ? | que faire cette semaine de l'effectif que j'ai ? | mon effectif est-il encore celui que le moteur choisirait ? |
+| Horizon | 4 GW | 3 GW | 4 GW |
+| Budget | 100,0 M£ (règle FPL) | sans objet | valeur d'équipe du manager |
+| Ce qui est optimisé | l'effectif entier | le brassard, le XI, transférer ou conserver | un effectif entier, puis un chemin de transferts |
+| Ce qui est mesuré | recouvrement du top 15 entre scénarios | accord des décisions entre scénarios | recouvrement de l'effectif reconstruit entre scénarios |
+| Porte qualité | `quality.assess` | `quality.assess_weekly` | `quality.assess_audit` |
 
 L'effectif détenu est une **donnée personnelle** : il n'entre jamais dans le
 contrat de projections, qui reste public et publiable. Il est passé à part, en
-simples identifiants, par `advise.py`.
+simples identifiants, par `advise.py` et `audit.py`.
+
+L'audit est un **diagnostic**, pas une décision : sa porte qualité ne vérifie
+donc pas `deadline_actionnable` — un écart mesuré sur quatre journées reste
+vrai après 17h30. Elle vérifie en revanche la stabilité de l'effectif
+reconstruit, que le mode hebdomadaire n'a pas à vérifier puisqu'il ne
+reconstruit rien.
+
+Deux propriétés à ne pas perdre de vue en lisant un audit, toutes deux écrites
+dans le rapport :
+
+- l'écart chiffré est un **minorant**. La reconstruction est une montée locale,
+  lancée depuis l'effectif le moins cher ET depuis l'effectif détenu, gardant
+  le meilleur des deux (voir `docs/anomalies-constatees.md`, A5). Sans le
+  second point de départ, elle pouvait annoncer un retard négatif ;
+- le prix de vente est approximé par `now_cost`, comme dans
+  `optimization/transfers.py` : l'API publique ne donne pas le prix d'achat.
 
 ## Le contrôle qualité
 
@@ -165,6 +182,13 @@ live rempli de zéros) ou sur un échantillon de moins de 50 joueurs.
 
 Cette couche ne prévoit rien, ne choisit personne, et n'importe pas
 l'optimiseur : elle lit le contrat et des minutes observées, rien d'autre.
+
+La commande `freeze` produit ce figeage **sans config, sans team ID et sans
+effectif** : le contrat de projections est public par construction, et le mode
+hebdomadaire ne lit `parsed["my"]` que pour décider, jamais pour projeter (un
+test l'affirme, contrat comparé au bit près). Conséquence pratique : la trace
+point-in-time peut être produite depuis n'importe quelle machine, et versée au
+dépôt sous `projections-figees/` — un chemin en `.gz` est compressé à la volée.
 
 ## Ce qui reste volontairement hors périmètre
 

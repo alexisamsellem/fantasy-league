@@ -16,6 +16,7 @@ Le contrat est volontairement une structure plate et sérialisable en JSON :
 pas d'objet vivant, pas de référence au snapshot, aucune fonction embarquée.
 """
 
+import gzip
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -160,15 +161,27 @@ class ProjectionSet:
         return obj
 
     def save(self, path):
+        """Écrit le contrat. Un chemin en `.gz` est compressé à la volée :
+        un contrat pèse ~1,8 Mo en clair et ~190 ko compressé, et un figeage
+        par journée a vocation à être conservé — versionné, il doit rester
+        léger. Le contenu est identique, `load` relit les deux formes."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=1, ensure_ascii=False),
-                        encoding="utf-8")
+        texte = json.dumps(self.to_dict(), indent=1, ensure_ascii=False)
+        if path.suffix == ".gz":
+            with gzip.open(path, "wt", encoding="utf-8") as fh:
+                fh.write(texte)
+        else:
+            path.write_text(texte, encoding="utf-8")
         return path
 
     @classmethod
     def load(cls, path):
-        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+        path = Path(path)
+        if path.suffix == ".gz":
+            with gzip.open(path, "rt", encoding="utf-8") as fh:
+                return cls.from_dict(json.load(fh))
+        return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 # ----------------------------------------------------------- construction ----

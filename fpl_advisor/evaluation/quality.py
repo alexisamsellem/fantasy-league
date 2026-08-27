@@ -425,3 +425,38 @@ def assess_weekly(contract, facts=None, now=None):
         if maybe is not None:
             checks.append(maybe)
     return _conclude(checks, KIND_DECISION)
+
+
+# ---------------------------------------------------- contrôle de l'audit ----
+
+def assess_audit(contract, facts=None, now=None):
+    """Verdict de l'audit d'effectif comparatif.
+
+    L'objet jugé n'est ni une semaine ni un achat : c'est un DIAGNOSTIC sur
+    quatre journées — l'écart entre l'effectif détenu et celui que le moteur
+    achèterait à la même valeur d'équipe. D'où deux différences assumées avec
+    la porte hebdomadaire :
+
+    - `deadline_actionnable` n'est PAS contrôlée. Un audit reste vrai après la
+      deadline : il décrit une divergence de modèle sur un horizon de quatre
+      GW, pas une action à passer avant 17h30. Le contrôler ici bloquerait un
+      rapport encore utile pour la semaine suivante ;
+    - `stabilite_top15` l'est, elle, alors qu'elle ne l'est pas à la semaine :
+      l'effectif idéal est RECONSTRUIT, donc il peut dépendre du jeu de priors.
+      S'il change d'un scénario à l'autre, l'écart chiffré ne mesure plus une
+      divergence, il mesure le choix d'un prior.
+
+    La fraîcheur reste contrôlée : un audit calculé sur des prix et des statuts
+    périmés propose un chemin de transferts qui n'existe plus.
+    """
+    facts = facts or {}
+    now = now or datetime.now(timezone.utc)
+    checks = [_data_coverage_weekly(contract), _weak_fallbacks(contract),
+              _freshness(contract, now), _stability(facts.get("min_overlap"))]
+    for maybe in (_team_reference(contract), _squad_readable(facts),
+                  _squad_up_to_date(facts),
+                  _flat_priors(contract, facts.get("rebuilt_ids") or []),
+                  _legality(facts)):
+        if maybe is not None:
+            checks.append(maybe)
+    return _conclude(checks, KIND_SQUAD)

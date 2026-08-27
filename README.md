@@ -58,9 +58,54 @@ l'heure à laquelle le rapport est produit.
 Autres commandes : `collect` (collecte seule), `advise` (décision de la semaine
 depuis le dernier snapshot), `demo` (bout-en-bout sur données 100 %
 synthétiques, aucun réseau requis), `initial-squad` (effectif initial, section
-suivante). `--freeze-projections FICHIER` fonctionne aussi sur `advise` et
-`run` : il écrit la trace auditable des projections utilisées, sans aucune
-donnée personnelle.
+suivante), `audit-effectif` et `freeze` (sections ci-dessous).
+`--freeze-projections FICHIER` fonctionne aussi sur `advise` et `run` : il
+écrit la trace auditable des projections utilisées, sans aucune donnée
+personnelle.
+
+## Audit d'effectif : où le modèle diverge de mon équipe
+
+```bash
+python3 -m fpl_advisor collect --with-history     # snapshot frais
+python3 -m fpl_advisor audit-effectif             # rapport d'audit
+python3 -m fpl_advisor audit-effectif --semaines 6   # chemin plus long
+```
+
+L'audit reconstruit les 15 joueurs que le moteur achèterait aujourd'hui **à la
+valeur d'équipe du manager**, les compare à l'effectif détenu, chiffre l'écart
+sur 4 GW et propose un chemin d'un transfert gratuit par semaine. Le rapport
+part sous `data/reports/GW<n>-audit-effectif-<horodatage>.md`.
+
+Trois choses à savoir avant de le lire :
+
+- **Ce n'est pas un plan.** Rebâtir de zéro suppose quinze transferts
+  simultanés, c'est-à-dire un wildcard. L'audit dit *où* le modèle diverge, pas
+  quoi faire cette semaine — la décision de la semaine reste `run`/`advise`.
+- **L'écart est un minorant.** L'optimiseur est une montée locale ; il s'arrête
+  au premier sommet. Un écart nul dit « le moteur n'a pas trouvé mieux », pas
+  « il n'y a rien de mieux » (voir `docs/anomalies-constatees.md`, A5).
+- **Les prix de vente sont approximés par le prix affiché** : l'API publique ne
+  donne pas le prix d'achat. Un échange annoncé faisable peut ne pas l'être.
+
+La porte qualité de l'audit est celle de la semaine moins un contrôle :
+`deadline_actionnable` n'est pas vérifiée, parce qu'un audit reste vrai après
+17h30. La fraîcheur du snapshot, elle, est bien contrôlée.
+
+## Figer les projections sans identifiants
+
+```bash
+python3 -m fpl_advisor freeze --with-history     --freeze-projections projections-figees/projections-GW2.json.gz
+```
+
+`freeze` écrit la trace point-in-time des projections **sans config, sans
+team ID et sans effectif** : le contrat est public par construction. C'est ce
+qui permet de figer avant une deadline depuis n'importe quelle machine, et de
+verser le fichier au dépôt — un chemin en `.gz` est compressé à la volée
+(~180 ko au lieu de 1,8 Mo). `--from-snapshot DOSSIER` réutilise un snapshot
+déjà collecté au lieu d'en refaire un.
+
+Les figeages conservés sont sous `projections-figees/`. Ils ne contiennent
+aucune donnée personnelle et sont l'entrée obligatoire de `calibrate`.
 
 ## Avant la GW1 : construire l'effectif initial
 
