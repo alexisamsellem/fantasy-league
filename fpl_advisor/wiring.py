@@ -29,12 +29,19 @@ def _decisions(squad, gws):
     return out
 
 
-def _select(rows, gws):
-    return opt_initial.optimize_squad(opt_initial.build_pool(rows), gws)
+def selection_backend(budget=opt_initial.BUDGET):
+    """Adaptateur standard : l'optimiseur réel du dépôt.
 
+    `budget` n'est explicite que pour l'audit d'effectif, qui reconstruit une
+    équipe à la valeur du manager et non aux 100,0 M£ du départ. Il doit être
+    lié ICI : `evaluation` appelle `select` sans savoir combien on peut
+    dépenser, et c'est bien le rôle du câblage de le lui apprendre."""
+    def _select(rows, gws):
+        return opt_initial.optimize_squad(opt_initial.build_pool(rows), gws, budget)
 
-def selection_backend():
-    """Adaptateur standard : l'optimiseur réel du dépôt."""
+    def _legality(squad):
+        return opt_initial.legality(squad, budget)
+
     return SelectionBackend(select=_select, value=opt_initial.squad_value,
-                            legality=opt_initial.legality, decisions=_decisions,
+                            legality=_legality, decisions=_decisions,
                             weekly=opt_weekly.weekly_decision)

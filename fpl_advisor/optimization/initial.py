@@ -50,8 +50,12 @@ def squad_value(squad, gws):
     return total
 
 
-def cheapest_squad(pool):
-    """Effectif valide le moins cher : point de départ garanti faisable."""
+def cheapest_squad(pool, budget=BUDGET):
+    """Effectif valide le moins cher : point de départ garanti faisable.
+
+    `budget` est un paramètre parce que l'audit d'effectif reconstruit une
+    équipe à la VALEUR D'ÉQUIPE du manager, qui n'est pas les 100,0 M£ du
+    départ. La valeur par défaut ne change rien aux appels existants."""
     squad, clubs = [], {}
     for et, quota in SQUAD_QUOTA.items():
         cands = sorted((r for r in pool if r["element_type"] == et),
@@ -70,18 +74,24 @@ def cheapest_squad(pool):
                 f"BLOCAGE : impossible de remplir le quota du poste {et} "
                 "sous la limite de 3 par club — données incomplètes ?")
     cost = sum(r["now_cost"] for r in squad)
-    if cost > BUDGET:
+    if cost > budget:
         raise SystemExit(
             f"BLOCAGE : l'effectif le moins cher coûte {cost / 10:.1f} M£ > "
-            f"{BUDGET / 10:.1f} M£ — vérifier les données de prix.")
+            f"{budget / 10:.1f} M£ — vérifier les données de prix.")
     return squad
 
 
-def optimize_squad(pool, gws):
+def optimize_squad(pool, gws, budget=BUDGET, start=None):
     """Montée locale par échanges un-pour-un (même poste), en partant de
     l'effectif le moins cher : chaque échange accepté améliore strictement
-    la valeur et respecte budget et limite de club. Retourne (squad, value)."""
-    squad = cheapest_squad(pool)
+    la valeur et respecte budget et limite de club. Retourne (squad, value).
+
+    `start` impose un autre point de départ, à ses risques : une montée locale
+    ne rend pas le même optimum selon d'où elle part. L'audit d'effectif s'en
+    sert pour repartir aussi de l'équipe détenue — sans quoi la reconstruction
+    peut se caler sous elle et annoncer un retard négatif, qui ne mesurerait
+    alors rien d'autre que la faiblesse de la montée."""
+    squad = list(start) if start is not None else cheapest_squad(pool, budget)
     cost = sum(r["now_cost"] for r in squad)
     value = squad_value(squad, gws)
     for _ in range(MAX_SWAP_ROUNDS):
@@ -94,7 +104,7 @@ def optimize_squad(pool, gws):
             for inn in pool:
                 if inn["id"] in squad_ids or inn["element_type"] != out["element_type"]:
                     continue
-                if cost - out["now_cost"] + inn["now_cost"] > BUDGET:
+                if cost - out["now_cost"] + inn["now_cost"] > budget:
                     continue
                 if inn["team"] != out["team"] \
                         and clubs.get(inn["team"], 0) + 1 > MAX_PER_CLUB:
@@ -114,7 +124,7 @@ def horizon_from(contract):
     return list(contract.horizon)
 
 
-def select_squad(contract, scenario="central", pool_ids=None):
+def select_squad(contract, scenario="central", pool_ids=None, budget=BUDGET):
     """Contrat → (effectif, valeur, vivier). Seule entrée utilisée en amont.
 
     `pool_ids` fige la présélection (celle du scénario central) pour qu'une
@@ -125,11 +135,11 @@ def select_squad(contract, scenario="central", pool_ids=None):
         pool = build_pool(rows)
     else:
         pool = [r for r in rows if r["id"] in set(pool_ids)]
-    squad, value = optimize_squad(pool, horizon_from(contract))
+    squad, value = optimize_squad(pool, horizon_from(contract), budget)
     return squad, value, pool
 
 
-def legality(squad):
+def legality(squad, budget=BUDGET):
     """Faits bruts sur un effectif — consommés par `evaluation`."""
     clubs = {}
     for r in squad:
@@ -137,7 +147,7 @@ def legality(squad):
     quota = {et: sum(1 for r in squad if r["element_type"] == et) for et in (1, 2, 3, 4)}
     cost = sum(r["now_cost"] for r in squad)
     return {
-        "cost": cost, "budget": BUDGET, "budget_ok": cost <= BUDGET,
+        "cost": cost, "budget": budget, "budget_ok": cost <= budget,
         "quota": quota, "quota_ok": quota == SQUAD_QUOTA,
         "max_per_club": max(clubs.values()) if clubs else 0,
         "club_ok": (max(clubs.values()) if clubs else 0) <= MAX_PER_CLUB,
