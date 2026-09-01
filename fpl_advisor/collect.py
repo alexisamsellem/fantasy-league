@@ -297,6 +297,38 @@ def load_public_snapshot(run_dir, team_reference=TEAM_REFERENCE):
     }
 
 
+def gw_fixtures_state(data_dir="data", gw=None):
+    """(matchs terminés, matchs au calendrier) pour une GW, d'après le snapshot
+    le plus récent qui porte un calendrier.
+
+    Sert de garde-fou à la calibration. `event.finished` du bootstrap ne suffit
+    pas : FPL le laisse à faux pendant des jours après le dernier coup de
+    sifflet, le temps de figer les bonus. Le calendrier, lui, dit la vérité
+    match par match."""
+    root = Path(data_dir) / "snapshots"
+    if not root.exists() or gw is None:
+        return 0, 0
+    for run in sorted((d for d in root.iterdir() if d.is_dir()), reverse=True):
+        fixtures = _read(run, "fixtures")
+        if not fixtures:
+            continue
+        de_la_gw = [f for f in fixtures if f.get("event") == gw]
+        if not de_la_gw:
+            continue
+        return sum(1 for f in de_la_gw if f.get("finished")), len(de_la_gw)
+    return 0, 0
+
+
+def gw_complete(data_dir="data", gw=None):
+    """La journée est-elle intégralement jouée ?
+
+    Condition NÉCESSAIRE pour noter des prévisions. Sans elle, un joueur dont
+    le match n'a pas encore eu lieu compte comme « n'a pas joué », et le score
+    mesure l'avancement du calendrier, pas la qualité du modèle."""
+    finis, total = gw_fixtures_state(data_dir, gw)
+    return total > 0 and finis == total
+
+
 def observed_minutes(data_dir="data", gw=None):
     """{element_id: minutes} d'une GW jouée, pris dans le snapshot le plus
     récent qui la contient réellement.

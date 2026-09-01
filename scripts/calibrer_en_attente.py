@@ -26,7 +26,8 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RACINE))
 
-from fpl_advisor.collect import observed_minutes                  # noqa: E402
+from fpl_advisor.collect import (gw_complete, gw_fixtures_state,  # noqa: E402
+                                 observed_minutes)
 from fpl_advisor.evaluation import calibration                    # noqa: E402
 from fpl_advisor.forecasting import ProjectionSet                 # noqa: E402
 from fpl_advisor.report import write_calibration                  # noqa: E402
@@ -79,10 +80,21 @@ def main(argv=None):
         if cible.exists() and not args.refaire:
             print(f"GW{contrat.gw} : déjà notée ({cible.name}).")
             continue
+        # Une journée PARTIELLEMENT jouée est le piège : le fichier live
+        # contient déjà des minutes, donc l'ancien garde-fou laissait passer,
+        # et tous les joueurs dont le match n'avait pas eu lieu comptaient
+        # comme « n'a pas joué ». Le score obtenu mesurait l'avancement du
+        # calendrier, pas le modèle (anomalie A7).
+        finis, total = gw_fixtures_state(args.data_dir, contrat.gw)
+        if not gw_complete(args.data_dir, contrat.gw):
+            print(f"GW{contrat.gw} : {finis}/{total or '?'} matchs terminés — "
+                  "journée incomplète, NON notée. Noter maintenant mesurerait "
+                  "le calendrier, pas le modèle.")
+            continue
         mins = observed_minutes(args.data_dir, contrat.gw)
         if not mins:
-            print(f"GW{contrat.gw} : pas encore jouée, ou snapshot sans "
-                  f"`event-{contrat.gw}-live` rempli — non notée.")
+            print(f"GW{contrat.gw} : snapshot sans `event-{contrat.gw}-live` "
+                  "rempli — non notée.")
             continue
         res = calibration.assess(contrat, mins, contrat.gw)
         provisoire = write_calibration(res, args.data_dir)

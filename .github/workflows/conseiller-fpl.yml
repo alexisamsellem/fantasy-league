@@ -20,11 +20,21 @@ name: Conseiller FPL
 
 on:
   schedule:
-    # Deux passages par jour en heure UTC. Le portier de deadline décide s'il y
-    # a lieu d'aller plus loin : hors des 60 h précédant une deadline, le job
-    # s'arrête après une requête.
+    # Quatre passages par jour en heure UTC, et c'est de la REDONDANCE, pas du
+    # zèle. Mesuré sur ce dépôt entre le 28 et le 31/08 : le planificateur de
+    # GitHub déclenche avec un retard systématique de ~5 h (un cron de 15:00
+    # parti à 20:42, un de 08:00 parti à 13:24), et le tout premier a été
+    # retardé de neuf heures. La documentation GitHub admet que les
+    # déclenchements planifiés peuvent être retardés, voire abandonnés.
+    #
+    # Avec quatre horaires étalés, un retard de 5 h laisse toujours au moins un
+    # passage utile avant une deadline de fin d'après-midi. Le coût est nul :
+    # le portier de deadline arrête le job après UNE requête hors des 60 h qui
+    # précèdent une deadline.
+    - cron: "0 4 * * *"
     - cron: "0 8 * * *"
-    - cron: "0 15 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       forcer:

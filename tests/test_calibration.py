@@ -187,6 +187,12 @@ class RapportEtCliTests(unittest.TestCase):
             c.save(proj)
             run = Path(tmp) / "snapshots" / "20260901T120000Z"
             run.mkdir(parents=True)
+            # Le calendrier fait partie du snapshot : sans lui, la commande
+            # refuse de noter — elle ne peut pas établir que la journée est
+            # terminée (anomalie A7).
+            (run / "fixtures.json").write_text(json.dumps(
+                [{"event": c.gw, "finished": True} for _ in range(10)]),
+                encoding="utf-8")
             (run / f"event-{c.gw}-live.json").write_text(json.dumps(
                 {"elements": [{"id": pid, "stats": {"minutes": m}}
                               for pid, m in _minutes_from(c, "calibre").items()]}),
@@ -199,3 +205,42 @@ class RapportEtCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JourneeIncompleteCliTests(unittest.TestCase):
+    """Régression A7, au niveau de la commande : `calibrate` doit refuser
+    une journée dont tous les matchs ne sont pas joués."""
+
+    def _snapshot(self, tmp, c, finis, total):
+        run = Path(tmp) / "snapshots" / "20260901T120000Z"
+        run.mkdir(parents=True)
+        (run / "fixtures.json").write_text(json.dumps(
+            [{"event": c.gw, "finished": i < finis} for i in range(total)]),
+            encoding="utf-8")
+        (run / f"event-{c.gw}-live.json").write_text(json.dumps(
+            {"elements": [{"id": pid, "stats": {"minutes": m}}
+                          for pid, m in _minutes_from(c, "calibre").items()]}),
+            encoding="utf-8")
+
+    def test_la_commande_refuse_une_journee_en_cours(self):
+        from fpl_advisor.__main__ import main
+        c = _contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = str(Path(tmp) / "proj.json")
+            c.save(proj)
+            self._snapshot(tmp, c, finis=1, total=10)   # le cas du 28/08
+            with self.assertRaises(SystemExit) as ctx:
+                main(["calibrate", "--from-projections", proj, "--data-dir", tmp])
+        msg = str(ctx.exception)
+        self.assertIn("1/10", msg)
+        self.assertIn("incomplète", msg)
+
+    def test_la_commande_accepte_une_journee_terminee(self):
+        from fpl_advisor.__main__ import main
+        c = _contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = str(Path(tmp) / "proj.json")
+            c.save(proj)
+            self._snapshot(tmp, c, finis=10, total=10)
+            self.assertEqual(
+                main(["calibrate", "--from-projections", proj, "--data-dir", tmp]), 0)

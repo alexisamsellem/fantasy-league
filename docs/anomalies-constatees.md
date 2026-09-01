@@ -219,3 +219,81 @@ une décision.
 
 **Ce que ça ne change pas** : aucune projection, aucune décision. Le capitaine,
 le XI et l'arbitrage sont les mêmes qu'avant. C'est l'affichage qui mentait.
+
+
+## A7 — Une journée à moitié jouée a été notée, et le verdict versé au journal — CORRIGÉ
+
+**Constaté le** 01/09/2026, en relisant le premier vrai résultat de calibration.
+**Présent depuis** le commit `d95a350` (mise en place du robot).
+**Sévérité** : haute — c'est le journal de calibration qui était corrompu,
+c'est-à-dire la seule chose qui juge ce moteur.
+
+Le 28/08 à 23h54 UTC, le robot a noté la GW2. À cette heure-là, **un seul
+match sur dix était terminé** (Crystal Palace – Man City, coup d'envoi 19h00).
+32 joueurs sur 622 avaient foulé le terrain ; les 590 autres attendaient leur
+match et ont été comptés comme « n'a pas joué ».
+
+Résultat versé au dépôt, commit `be38866` :
+
+    Taux de base observé      4 %      (au lieu de 37 %)
+    Score de compétence   −3.199      « ÉCHEC, le moteur fait PIRE que
+                                        d'annoncer le taux de base »
+
+Recalculée une fois les dix matchs terminés, la MÊME journée, avec les MÊMES
+projections figées, donne **+0,416**. Le rapport ne mesurait pas le modèle, il
+mesurait l'avancement du calendrier.
+
+**Cause** : `observed_minutes` exigeait « au moins une minute non nulle »
+quelque part dans le fichier live. Ce garde-fou protège d'une journée PAS
+ENCORE COMMENCÉE. Il ne protège pas d'une journée EN COURS — dès le premier
+match, la condition est remplie.
+
+**Correction** : `collect.gw_complete` établit qu'une journée est terminée en
+lisant le CALENDRIER, match par match. `event.finished` du bootstrap ne
+convient pas : FPL le laisse à faux pendant des jours après le dernier coup de
+sifflet, le temps de figer les bonus — au 01/09, la GW2 avait ses dix matchs
+terminés et portait encore `finished: false`.
+
+Le refus est posé aux trois entrées : `scripts/calibrer_en_attente.py`, la
+commande `calibrate`, et la fonction de garde elle-même. Le message nomme le
+compte exact (« 1/10 matchs terminés »), parce qu'un refus sans chiffre est
+indiscernable d'une panne.
+
+Six tests de régression, dont un qui rejoue le cas exact du 28/08 : un match
+fini, des minutes déjà présentes dans le fichier live — l'ancien garde-fou
+laissait passer, le nouveau refuse.
+
+**Ce que ça ne change pas** : aucune projection, aucune décision. Le figeage
+point-in-time du 28/08 09h19 était valide et l'est resté ; seule sa NOTATION
+était prématurée. Le rapport fautif a été remplacé par le bon.
+
+
+## A8 — Un transfert déjà passé n'est pas visible avant la deadline — CONSTATÉ, NON CORRIGÉ
+
+**Constaté le** 28/08/2026 à 16h31 UTC, une heure avant la deadline GW2.
+**Sévérité** : moyenne — produit de fausses alertes, et prive le contrôle
+`effectif_a_jour` de son signal au moment précis où il servirait.
+
+Le transfert `Tzolis → Tavernier` a été enregistré par le manager à **14h14
+UTC**. Interrogé à **16h31**, `GET /api/entry/{id}/transfers/` a rendu une
+liste **vide** pour l'événement 2. Le même appel, après la deadline, montre le
+transfert avec son horodatage de 14h14.
+
+Conséquence immédiate : une alerte fausse envoyée au manager (« ton transfert
+n'est PAS enregistré ») alors qu'il était fait depuis deux heures.
+
+**Cause non établie.** Deux explications tiennent : soit FPL masque
+délibérément les transferts en attente avant la deadline, soit la réponse
+était servie par un cache. Les deux mènent à la même conclusion pratique :
+**ce signal n'est pas fiable avant la deadline.**
+
+Conséquence sur le moteur : `weekly.pending_transfers` lit exactement cet
+endpoint, et le contrôle qualité `effectif_a_jour` en dépend. Ce contrôle est
+donc structurellement incapable de détecter le cas qu'il vise — des picks
+périmés parce qu'un transfert a déjà été passé pour la GW à venir.
+
+**Non corrigé faute de signal de remplacement** : l'API publique n'expose
+aucune autre trace d'un transfert en attente. Deux options à trancher :
+retirer le contrôle plutôt que de laisser croire qu'il protège, ou le laisser
+en le requalifiant explicitement en « ne détecte qu'après coup ». À décider
+avant d'ajouter d'autres contrôles qui dépendraient de la même source.

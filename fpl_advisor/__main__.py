@@ -19,9 +19,9 @@ from . import weekly
 from .advise import build_recommendation
 from .api import load_config
 from .audit import build_audit
-from .collect import (collect_all, collect_public, latest_snapshot_dir,
-                      load_duckdb, load_public_snapshot, load_snapshot,
-                      observed_minutes)
+from .collect import (collect_all, collect_public, gw_complete,
+                      gw_fixtures_state, latest_snapshot_dir, load_duckdb,
+                      load_public_snapshot, load_snapshot, observed_minutes)
 from .evaluation import calibration
 from .evaluation.bench import build_bench, write_bench
 from .forecasting import ProjectionSet
@@ -167,6 +167,13 @@ def main(argv=None):
                 "data/projections-GW<n>.json")
         contract = ProjectionSet.load(args.from_projections)
         gw = args.gw if args.gw is not None else contract.gw
+        finis, total = gw_fixtures_state(args.data_dir, gw)
+        if not gw_complete(args.data_dir, gw):
+            raise SystemExit(
+                f"GW{gw} : {finis}/{total or '?'} matchs terminés. Noter une "
+                "journée incomplète mesure l'avancement du calendrier, pas le "
+                "modèle : les joueurs dont le match n'a pas eu lieu comptent "
+                "comme absents. Relancer une collecte après le dernier match.")
         mins = observed_minutes(args.data_dir, gw)
         res = calibration.assess(contract, mins, gw)
         path = write_calibration(res, args.data_dir)

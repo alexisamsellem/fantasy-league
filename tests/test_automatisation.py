@@ -159,3 +159,61 @@ class FigeagesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class JourneeIncompleteTests(unittest.TestCase):
+    """Régression A7 — ne jamais noter une journée partiellement jouée.
+
+    Le 28/08 à 23:54, le robot a noté la GW2 alors qu'UN SEUL match sur dix
+    était terminé. 32 joueurs sur 622 avaient joué ; tous les autres comptaient
+    comme absents. Le rapport a conclu « ÉCHEC, compétence −3,199 » et ce
+    verdict faux a été versé au journal. Recalculée journée complète, la même
+    GW donne +0,416.
+
+    L'ancien garde-fou demandait seulement « quelqu'un a-t-il joué ? ». Il
+    protégeait d'une journée PAS commencée, pas d'une journée EN COURS.
+    """
+
+    def _snapshot(self, fixtures, live_minutes=None):
+        import json
+        d = tempfile.mkdtemp()
+        run = Path(d) / "snapshots" / "20260101T000000Z"
+        run.mkdir(parents=True)
+        (run / "fixtures.json").write_text(json.dumps(fixtures), encoding="utf-8")
+        if live_minutes is not None:
+            (run / "event-2-live.json").write_text(json.dumps(
+                {"elements": [{"id": i, "stats": {"minutes": m}}
+                              for i, m in enumerate(live_minutes, 1)]}),
+                encoding="utf-8")
+        return d
+
+    def _fixtures(self, finis, total, gw=2):
+        return [{"event": gw, "finished": i < finis} for i in range(total)]
+
+    def test_une_journee_a_moitie_jouee_n_est_pas_complete(self):
+        from fpl_advisor.collect import gw_complete, gw_fixtures_state
+        d = self._snapshot(self._fixtures(1, 10))
+        self.assertEqual(gw_fixtures_state(d, 2), (1, 10))
+        self.assertFalse(gw_complete(d, 2),
+                         "1 match sur 10 ne fait pas une journée notable")
+
+    def test_une_journee_entierement_jouee_est_complete(self):
+        from fpl_advisor.collect import gw_complete
+        self.assertTrue(gw_complete(self._snapshot(self._fixtures(10, 10)), 2))
+
+    def test_une_gw_sans_calendrier_n_est_jamais_complete(self):
+        """Absence de preuve n'est pas preuve d'achèvement."""
+        from fpl_advisor.collect import gw_complete
+        d = self._snapshot(self._fixtures(10, 10, gw=2))
+        self.assertFalse(gw_complete(d, 7))
+        self.assertFalse(gw_complete(d, None))
+
+    def test_le_cas_reel_du_28_08_est_refuse(self):
+        """Le scénario exact du défaut : un match fini, des minutes déjà
+        présentes dans le fichier live. L'ancien garde-fou passait."""
+        from fpl_advisor.collect import gw_complete, observed_minutes
+        d = self._snapshot(self._fixtures(1, 10),
+                           live_minutes=[90] * 32 + [0] * 590)
+        self.assertTrue(observed_minutes(d, 2),
+                        "des minutes existent : l'ancien garde-fou laissait passer")
+        self.assertFalse(gw_complete(d, 2), "le nouveau doit refuser")
