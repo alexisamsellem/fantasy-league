@@ -188,11 +188,18 @@ def confidence_level(report):
 
 
 # ------------------------------------------------------------ priors de poste ----
-# 1=GB, 2=DEF, 3=MIL, 4=ATT. Tous [H, NON CALIBRÉS].
+# 1=GB, 2=DEF, 3=MIL, 4=ATT. Tous [H, NON CALIBRÉS] sauf P60_GIVEN_START.
 
 START_RATE_PRIOR = {1: 0.35, 2: 0.40, 3: 0.38, 4: 0.38}
 PLAY_RATE_PRIOR = {1: 0.38, 2: 0.55, 3: 0.58, 4: 0.58}
-P60_GIVEN_START = 0.88          # un titulaire sorti avant la 60e reste rare [H]
+# MESURÉ, plus un [H]. P(60+ minutes | titularisé) relevée sur les feuilles
+# de match publiques des GW1 à GW3 2026/27 : 630 titulaires sur 660 ont
+# atteint la 60e minute (0.955, 0.950, 0.959 journée par journée).
+# L'ancienne valeur 0.88 était à neuf écarts-types de la mesure : elle
+# sous-cotait tout titulaire confirmé. Voir docs/anomalies-constatees.md (A9)
+# et tests/test_priors.py::test_p60_si_titulaire_colle_a_la_mesure.
+# À re-mesurer quand la saison aura accumulé plus de journées.
+P60_GIVEN_START = 0.954
 
 XG90_PRIOR = {1: 0.00, 2: 0.05, 3: 0.15, 4: 0.30}
 XA90_PRIOR = {1: 0.00, 2: 0.07, 3: 0.14, 4: 0.11}

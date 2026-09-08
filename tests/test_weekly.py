@@ -447,14 +447,19 @@ class MinutesObserveesTests(unittest.TestCase):
     def test_signature_du_titulaire_absent_une_journee(self):
         """Régression du cas réel GW2 2026/27 : un attaquant à 34
         titularisations la saison passée, absent de la GW1 et sans alerte
-        officielle, ressort à P(jouer) ≈ 63 % et P(60+) ≈ 55 %.
+        officielle, ressort à P(jouer) ≈ 63 % et P(60+) ≈ 60 %.
 
         Ce test ne dit pas que ces valeurs sont JUSTES — aucune calibration ne
         l'a montré. Il fige le comportement pour qu'un changement de priors ne
-        passe pas inaperçu."""
+        passe pas inaperçu.
+
+        P(60+) valait 55 % avant la correction A9 de P60_GIVEN_START
+        (0.88 → 0.954, mesurée sur 660 titularisations). Le déplacement est
+        celui attendu : 0.55 × 0.954 / 0.88 = 0.60. P(jouer) ne bouge pas —
+        la constante ne porte que sur le seuil des 60 minutes."""
         m = self._minutes({"minutes": 0, "started": False})
         self.assertAlmostEqual(m["p_play"], 0.63, places=2)
-        self.assertAlmostEqual(m["p60"], 0.55, places=2)
+        self.assertAlmostEqual(m["p60"], 0.60, places=2)
         self.assertEqual(m["avail"], 1.0)      # aucun flag d'infirmerie
 
     def test_le_contrat_transporte_le_fait_observe(self):

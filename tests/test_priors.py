@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fpl_advisor import initial, model, priors           # noqa: E402
+from fpl_advisor.forecasting import minutes              # noqa: E402
 from fpl_advisor.forecasting import build_projection_set  # noqa: E402
 from fpl_advisor.demo import build_parsed_initial        # noqa: E402
 from fpl_advisor.report import render_initial            # noqa: E402
@@ -349,6 +350,82 @@ class StabiliteTests(unittest.TestCase):
         rec = initial.build_initial_recommendation(build_parsed_initial())
         rec = dict(rec, stable=False, min_overlap=9)
         self.assertIn("EFFECTIF INSTABLE", render_initial(rec))
+
+
+# Feuilles de match publiques 2026/27, GW1 à GW3 : (titularisations, dont 60+).
+# Relevé sur le champ officiel `starts` de /api/event/{gw}/live/. Chaque GW
+# compte exactement 10 matchs, soit 220 titulaires — le relevé est complet,
+# pas un échantillon.
+P60_SI_TITULAIRE_MESURE = {1: (220, 210), 2: (220, 209), 3: (220, 211)}
+
+
+class P60SiTitulaireTests(unittest.TestCase):
+    """Régression A9 : P60_GIVEN_START valait 0.88 sans jamais avoir été mesuré.
+
+    La valeur réelle est 0.954. L'écart sous-cotait TOUT titulaire confirmé,
+    et le tableau de fiabilité des GW2 et GW3 le montrait : la tranche
+    80–100 % annonçait 82 % et 83 % pour 95 % et 97 % observés.
+
+    Ces tests échouent sur l'ancienne valeur. C'est leur seule raison d'être.
+    """
+
+    # `fpl_advisor.priors` est une façade en `import *` : elle COPIE les
+    # scalaires à l'import. Patcher la façade ne changerait rien au moteur.
+    # On vise donc le module que `minutes_model` lit réellement.
+    priors = minutes.priors
+
+    def _mesure(self):
+        titulaires = sum(n for n, _ in P60_SI_TITULAIRE_MESURE.values())
+        atteints = sum(k for _, k in P60_SI_TITULAIRE_MESURE.values())
+        p = atteints / titulaires
+        ecart_type = (p * (1 - p) / titulaires) ** 0.5
+        return p, ecart_type
+
+    def test_p60_si_titulaire_colle_a_la_mesure(self):
+        p, ecart_type = self._mesure()
+        # Intervalle à 99 % : la constante doit rester compatible avec le
+        # relevé. 0.88 en est à neuf écarts-types.
+        borne_basse, borne_haute = p - 2.58 * ecart_type, p + 2.58 * ecart_type
+        self.assertLess(borne_haute - borne_basse, 0.05,
+                        "660 titularisations doivent donner un intervalle serré")
+        self.assertTrue(borne_basse <= self.priors.P60_GIVEN_START <= borne_haute,
+                        "P60_GIVEN_START=%.3f hors de l'intervalle mesuré "
+                        "[%.3f, %.3f]" % (self.priors.P60_GIVEN_START,
+                                          borne_basse, borne_haute))
+        self.assertFalse(borne_basse <= 0.88 <= borne_haute,
+                         "l'ancienne valeur doit rester exclue, sinon ce test "
+                         "ne démontre plus rien")
+
+    def test_la_mesure_est_stable_journee_par_journee(self):
+        # Une moyenne sur trois GW ne vaut que si les trois concordent. Si une
+        # journée s'écartait franchement, la constante unique serait le mauvais
+        # modèle et cette correction serait à revoir.
+        taux = [k / n for n, k in P60_SI_TITULAIRE_MESURE.values()]
+        self.assertLess(max(taux) - min(taux), 0.02,
+                        "dispersion inter-journée trop forte pour une constante")
+        for t in taux:
+            self.assertAlmostEqual(t, self.priors.P60_GIVEN_START, delta=0.02)
+
+    def test_p60_reste_proportionnel_a_la_constante(self):
+        """Le `min(avail, ...)` de minutes_model ne doit jamais mordre.
+
+        C'est ce qui rend la constante lisible ET le rejeu des journées figées
+        exact : p60 est strictement proportionnel à P60_GIVEN_START. Si un jour
+        le plafond s'active, l'effet d'un changement de constante devient
+        non linéaire et cette régression le signale.
+        """
+        joueur = {"id": 1, "element_type": 3, "status": "a",
+                  "chance_of_playing_next_round": None}
+        historique = [{"minutes": 90, "started": True}] * 6
+        base = minutes.minutes_model(joueur, historique)["p60"]
+        ancienne = self.priors.P60_GIVEN_START
+        try:
+            self.priors.P60_GIVEN_START = ancienne / 2
+            moitie = minutes.minutes_model(joueur, historique)["p60"]
+        finally:
+            self.priors.P60_GIVEN_START = ancienne
+        self.assertAlmostEqual(moitie, base / 2, places=9)
+        self.assertLess(base, 1.0)
 
 
 if __name__ == "__main__":

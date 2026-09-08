@@ -118,7 +118,8 @@ disait pourquoi. Reconstitution du calcul : ces deux valeurs correspondent
 exactement à un attaquant à ~34 titularisations la saison précédente ayant
 joué **zéro minute** en GW1 — `shrink(0, 1, 0.839, 3) = 0.63`, puis
 `0.63 × P60_GIVEN_START (0,88) = 0,55`. Le moteur avait raison ; le rapport
-était muet.
+était muet. (Chiffres d'époque : `P60_GIVEN_START` vaut 0,954 depuis A9, ce
+qui porte cet exemple à 0,60. Le raisonnement est inchangé.)
 
 **Correction** : `minutes_model` compte désormais les titularisations et les
 apparitions réellement observées sur la fenêtre de récence, les écrit dans la
@@ -297,3 +298,71 @@ aucune autre trace d'un transfert en attente. Deux options à trancher :
 retirer le contrôle plutôt que de laisser croire qu'il protège, ou le laisser
 en le requalifiant explicitement en « ne détecte qu'après coup ». À décider
 avant d'ajouter d'autres contrôles qui dépendraient de la même source.
+
+## A9 — `P60_GIVEN_START` valait 0.88 sans avoir jamais été mesuré — CORRIGÉ
+
+**Constaté le** 08/09/2026, au deuxième point de calibration.
+**Sévérité** : haute — sous-cotait tout titulaire confirmé, donc le XI, le
+capitaine et l'ordre du banc.
+
+Les tableaux de fiabilité des GW2 et GW3 montraient le même défaut, dans le
+même sens, sur les mêmes tranches :
+
+| Tranche P(60+) | GW2 annoncé → observé | GW3 annoncé → observé |
+|---|---|---|
+| 40 – 60 % | 50 % → 67 % (+17) | 51 % → 74 % (+23) |
+| 60 – 80 % | 71 % → 86 % (+15) | 70 % → 84 % (+13) |
+| 80 – 100 % | 82 % → 95 % (+13) | 83 % → 97 % (+14) |
+
+La tranche haute donne la clé. Dans `minutes_model` :
+
+    p60 = min(avail, avail * r_start * P60_GIVEN_START * tilt)
+
+avec `r_start ≤ 1`, le moteur **ne pouvait structurellement pas annoncer
+plus de 88 %**, alors que la population des titulaires acquis convertit à
+97 %. Le plafond était l'anomalie, pas le rétrécissement.
+
+**Mesure directe.** `P60_GIVEN_START` est P(60+ minutes | titularisé) : une
+grandeur observable, pas une sortie de modèle. Relevée sur le champ officiel
+`starts` de `/api/event/{gw}/live/`, GW1 à GW3 (10 matchs chacune, donc
+220 titulaires par journée — un relevé complet, pas un échantillon) :
+
+| Journée | Titularisations | Dont 60+ | Taux |
+|---|---|---|---|
+| GW1 | 220 | 210 | 0.955 |
+| GW2 | 220 | 209 | 0.950 |
+| GW3 | 220 | 211 | 0.959 |
+| **Total** | **660** | **630** | **0.9545** |
+
+Écart-type 0.0081 : l'ancienne valeur 0.88 était à **neuf écarts-types** de la
+mesure. Dispersion inter-journée : 0.9 point. La constante est passée à
+**0.954**, et perd son marqueur `[H]`.
+
+**Effet mesuré sur les deux journées figées.** `P60_GIVEN_START` entre comme
+multiplicateur pur — le `min()` ne mord jamais tant que la constante est
+inférieure à 1 — donc les contrats figés se rejouent exactement, sans
+reconstruire les snapshots :
+
+| Journée | Compétence P(60+) avant | après | Δ |
+|---|---|---|---|
+| GW2 | +0.4157 | +0.4359 | +0.0202 |
+| GW3 | +0.4607 | +0.4838 | +0.0231 |
+
+La tranche 80–100 % passe de +13/+14 à +5/+5 d'écart. Les deux journées
+s'améliorent, dans le même sens et dans le même ordre de grandeur.
+
+**Régression** : `tests/test_priors.py::P60SiTitulaireTests`. Le relevé des
+660 titularisations y est figé comme fixture ; la constante doit rester dans
+son intervalle de confiance à 99 %, et le test vérifie explicitement que
+0.88 en reste exclu — sans quoi il ne démontrerait plus rien. Un troisième
+test fige la proportionnalité de `p60` à la constante, condition de validité
+du rejeu ci-dessus.
+
+**Ce que cette correction ne règle pas.** La tranche 40–60 % reste
+sous-confiante après correction (+17 en GW2, +20 en GW3). C'est un défaut
+distinct, cohérent avec un `MINUTES_PRIOR_MATCHES = 3.0` trop agressif en
+début de saison, où l'historique ne pèse qu'une ou deux journées. **Non
+corrigé** : aucune mesure directe de cette constante n'existe, et son effet
+est confondu avec la faible taille de l'historique — la modifier maintenant
+reviendrait à l'ajuster sur deux journées. À reprendre vers la GW6, quand
+l'historique observé pèsera plus que le prior.
