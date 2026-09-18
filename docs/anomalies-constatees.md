@@ -366,3 +366,38 @@ corrigé** : aucune mesure directe de cette constante n'existe, et son effet
 est confondu avec la faible taille de l'historique — la modifier maintenant
 reviendrait à l'ajuster sur deux journées. À reprendre vers la GW6, quand
 l'historique observé pèsera plus que le prior.
+
+## A10 — Confirmation en conditions réelles : un échange à prix affiché égal a été refusé pour -0,2M£ — CONSTATÉ, NON CORRIGÉ
+
+**Constaté le** 18/09/2026 par Alexis, dans l'app officielle FPL : le transfert
+Thiago (sortant) → João Pedro (entrant) a été refusé pour **-0,2M£**.
+
+**Sévérité** : moyenne — ce n'est pas une nouvelle erreur de calcul, la limite
+est déjà écrite dans le README (« les prix de vente sont approximés par le prix
+affiché […] un échange annoncé faisable peut ne pas l'être », lignes 131-133).
+C'est la première occurrence réelle et chiffrée de cette limite depuis qu'elle
+est documentée.
+
+**VÉRIFIÉ** dans le figeage du même jour
+(`projections-figees/projections-GW5.json.gz`, `as_of` 2026-09-18T08:48:10Z) :
+Thiago (Brentford, id 106) et João Pedro (Chelsea, id 165) sont tous les deux
+au poste attaquant et au même `now_cost` affiché — **7,8M£ chacun**. João Pedro
+est signalé douteux (`status: d`, « 75 % chance of playing ») et Thiago
+disponible (`status: a`).
+
+**DÉDUIT, non vérifié directement** : à prix affiché identique, l'approximation
+du moteur (prix de vente = `now_cost`) rendrait cet échange neutre en argent —
+`cost_after = bank + sell - now_cost = bank`. Le vrai prix de vente FPL n'est
+pas le prix affiché : il dépend du prix d'achat et de la règle qui ne restitue
+que 50 % de la plus-value réalisée (arrondie à la dizaine inférieure de
+0,1M£). Un Thiago acheté avant une hausse de prix ne revend donc pas à 7,8M£
+aujourd'hui même si le prix affiché l'est. Ceci suffit à expliquer un manque
+à la vente de l'ordre de -0,2M£, invisible pour le moteur puisque l'API
+publique ne donne pas le prix d'achat individuel — la même cause que la limite
+déjà actée au README.
+
+**Non corrigé, pour la même raison qu'avant** : aucune source publique ne
+donne le prix d'achat par joueur, donc aucun calcul ne peut remplacer
+l'approximation. Cette entrée n'ajoute pas une cause nouvelle : elle fixe un
+point de mesure réel et daté à une limite déjà connue, pour qu'elle reste
+plus qu'une phrase de garde dans le README.
