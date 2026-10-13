@@ -76,12 +76,27 @@ personnelle.
 
 ## Le faire tourner tout seul (GitHub Actions)
 
-`.github/workflows/conseiller-fpl.yml` remplace la machine du manager. Deux
-passages par jour : un portier regarde d'abord combien d'heures restent avant
-la deadline (une seule requête) et ne va plus loin que dans les 60 dernières
-heures. Ensuite il collecte, décide, audite, fige les projections dans le
-dépôt, et envoie le rapport par e-mail. Un second job note les journées jouées
-et verse les calibrations sous `calibrations/`.
+`.github/workflows/conseiller-fpl.yml` remplace la machine du manager. Il
+passe toutes les heures, mais un portier (`scripts/envois.py`, une seule
+requête) l'arrête aussitôt tant qu'aucun mail n'est dû. Trois mails par
+journée, au plus :
+
+1. **le mail de décision**, 7 h 30 avant la deadline — vendredi 12 h à Paris
+   pour une deadline du vendredi 19 h 30. S'il tombait avant 8 h (deadline du
+   samedi midi), il part la veille à 20 h ;
+2. **le rappel**, 2 h 30 avant — vendredi 17 h. Le moteur recalcule, et le
+   mail ne part QUE si la décision a changé (transfert, capitaine, vice ou
+   onze). Il s'ouvre alors sur « ça a changé depuis le premier mail » ;
+3. **le bilan**, une fois la journée jouée et les points validés par FPL : le
+   score face à la moyenne, le brassard face au meilleur choix possible, le
+   transfert, le banc, le prévu face au réel, les classements, et la note du
+   moteur (calibration, versée sous `calibrations/`).
+
+Pourquoi un passage par heure plutôt que deux crons à 12 h et 17 h : le
+planificateur de GitHub part avec plusieurs heures de retard (4 h 30 à 7 h
+mesurées les 8 et 9/10). C'est l'heure réelle du passage, comparée à la
+deadline, qui décide ; un journal des envois (dans le cache d'Actions, jamais
+dans Git) empêche qu'un mail reparte.
 
 Le mail lui-même est court : la décision en tête, puis POURQUOI, dans l'ordre —
 quel fait a produit quelle conséquence. Le rapport Markdown complet (douze

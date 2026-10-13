@@ -149,6 +149,73 @@ def collect_all(cfg, data_dir="data", with_history=False):
     return store.dir
 
 
+def _collect_leagues(store, cfg):
+    """Classements des mini-ligues, pagination bornée. Retourne les lignes
+    par ligue (sans les picks des rivaux)."""
+    out = {}
+    for lid in (cfg.get("league_ids") or [cfg["league_id"]]):
+        rows = []
+        for page in range(1, MAX_LEAGUE_PAGES + 1):
+            data, _ = get_json(
+                f"/leagues-classic/{lid}/standings/?page_standings={page}",
+                store, f"league-{lid}-standings-p{page}")
+            if not data:
+                break
+            rows.extend(data.get("standings", {}).get("results") or [])
+            if not data.get("standings", {}).get("has_next"):
+                break
+        out[lid] = rows
+    return out
+
+
+def collect_bilan(cfg, gw, data_dir="data"):
+    """Collecte légère pour analyser une journée JOUÉE : points live, mes
+    picks de CETTE journée, mon historique, mes transferts, les classements.
+    Une vingtaine de GET, aucun historique de saisons passées.
+
+    Les picks sont demandés pour `gw` explicitement, pas pour la dernière GW
+    close : si le bilan part après la deadline suivante, la « dernière GW
+    close » n'est plus celle qu'on analyse."""
+    store = SnapshotStore(data_dir)
+    _, closed = _collect_common(store)
+    if gw not in closed[-HISTORY_GWS:]:
+        get_json(f"/event/{gw}/live/", store, f"event-{gw}-live")
+    tid = cfg["team_id"]
+    get_json(f"/entry/{tid}/history/", store, f"entry-{tid}-history")
+    get_json(f"/entry/{tid}/transfers/", store, f"entry-{tid}-transfers")
+    get_json(f"/entry/{tid}/event/{gw}/picks/", store, f"entry-{tid}-gw{gw}-picks")
+    _collect_leagues(store, cfg)
+    return store.dir
+
+
+def load_bilan(run_dir, cfg, gw):
+    """Relit ce que `collect_bilan` a écrit, sous une forme plate."""
+    run_dir = Path(run_dir)
+    boot = _read(run_dir, "bootstrap-static")
+    if boot is None:
+        raise SystemExit(f"Snapshot incomplet : bootstrap-static absent de {run_dir}")
+    tid = cfg["team_id"]
+    ligues = []
+    for lid in (cfg.get("league_ids") or [cfg["league_id"]]):
+        rows, nom = [], None
+        for page in range(1, MAX_LEAGUE_PAGES + 1):
+            data = _read(run_dir, f"league-{lid}-standings-p{page}")
+            if not data:
+                break
+            nom = nom or (data.get("league") or {}).get("name")
+            rows.extend(data.get("standings", {}).get("results") or [])
+        ligues.append({"id": lid, "name": nom or f"ligue {lid}", "rows": rows})
+    return {
+        "gw": gw, "team_id": tid, "run_dir": str(run_dir),
+        "bootstrap": boot,
+        "live": _read(run_dir, f"event-{gw}-live"),
+        "history": _read(run_dir, f"entry-{tid}-history"),
+        "transfers": _read(run_dir, f"entry-{tid}-transfers") or [],
+        "picks": _read(run_dir, f"entry-{tid}-gw{gw}-picks"),
+        "leagues": ligues,
+    }
+
+
 def snapshot_as_of(run_dir):
     """Date de connaissance des données d'un snapshot : la plus récente des
     dates de récupération du manifeste.
