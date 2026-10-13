@@ -10,30 +10,50 @@
   python3 -m fpl_advisor audit-effectif # effectif détenu vs effectif reconstruit
   python3 -m fpl_advisor freeze         # fige les projections, sans config ni effectif
   python3 -m fpl_advisor calibrate      # probabilités figées vs résultats réels
+  python3 -m fpl_advisor bilan --gw N   # analyse d'une journée jouée (mail)
 """
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
-from . import weekly
+from . import bilan, envois, weekly
 from .advise import build_recommendation
 from .api import load_config
 from .audit import build_audit
-from .collect import (collect_all, collect_public, gw_complete,
-                      gw_fixtures_state, latest_snapshot_dir, load_duckdb,
+from .collect import (collect_all, collect_bilan, collect_public, gw_complete,
+                      gw_fixtures_state, latest_snapshot_dir, load_bilan,
+                      load_duckdb,
                       load_public_snapshot, load_snapshot, observed_minutes)
 from .evaluation import calibration
 from .evaluation.bench import build_bench, write_bench
 from .forecasting import ProjectionSet
 from .initial import build_contract, build_from_contract
-from .report import (write_audit, write_calibration, write_email,
+from .report import (write_audit, write_bilan, write_calibration, write_email,
                      write_initial_report, write_report)
 from .optimization.audit import PATH_WEEKS
 from .wiring import selection_backend
 
 
-def _advise(parsed, data_dir, freeze_to=None):
+def _advise(parsed, data_dir, freeze_to=None, moment=None,
+            journal=envois.JOURNAL):
     rec = build_recommendation(parsed, freeze_to=freeze_to)
+    if moment:
+        # Le mail n'est rédigé qu'une fois la question tranchée : au rappel,
+        # il doit dire CE qui a changé depuis le mail principal.
+        dec = envois.decision(rec)
+        envoyer, diff = envois.arbitrer(envois.charger(journal), rec["gw"],
+                                        moment, dec)
+        rec["changements"] = diff
+        out = Path(data_dir) / "reports"
+        out.mkdir(parents=True, exist_ok=True)
+        (out / f"GW{rec['gw']}-decision.json").write_text(
+            json.dumps(dec, ensure_ascii=False), encoding="utf-8")
+        print(f"Envoi ({moment}) : "
+              + ("oui" if envoyer else "non — décision inchangée")
+              + (f", {len(diff)} changement(s)" if diff else ""))
+        envois.sortie(envoyer="true" if envoyer else "false")
     path = write_report(rec, data_dir)
     html, texte = write_email(rec, data_dir)
     band, v = rec["armband"], rec["verdict"]
@@ -71,6 +91,18 @@ def _audit(parsed, data_dir, weeks, freeze_to=None):
     return 0
 
 
+def _bilan(cfg, data_dir, gw):
+    if gw is None:
+        raise SystemExit("bilan exige --gw N : la journée à analyser.")
+    run_dir = collect_bilan(cfg, gw, data_dir)
+    print(f"Snapshot : {run_dir}")
+    res = bilan.build(load_bilan(run_dir, cfg, gw), contrat=bilan.contrat_fige(gw))
+    html, texte, sujet = write_bilan(res, data_dir)
+    print(f"Mail : {html} (+ {texte.name})")
+    print(sujet)
+    return 0
+
+
 def _initial(contract, data_dir):
     rec = build_from_contract(contract)
     path = write_initial_report(rec, data_dir)
@@ -88,7 +120,7 @@ def main(argv=None):
     ap.add_argument("command",
                     choices=["collect", "advise", "run", "demo", "initial-squad",
                              "initial-bench", "audit-effectif", "freeze",
-                             "calibrate"])
+                             "calibrate", "bilan"])
     ap.add_argument("--config", default="config.local.json")
     ap.add_argument("--data-dir", default="data")
     ap.add_argument("--demo", action="store_true",
@@ -114,8 +146,14 @@ def main(argv=None):
                          f"proposé (défaut {PATH_WEEKS}, un transfert gratuit "
                          "par semaine)")
     ap.add_argument("--gw", type=int,
-                    help="calibrate : GW à noter (par défaut, la GW de décision "
-                         "du contrat figé)")
+                    help="calibrate : GW à noter (par défaut, la GW de "
+                         "décision du contrat figé). bilan : GW à analyser")
+    ap.add_argument("--moment", choices=list(envois.MOMENTS),
+                    help="advise : passage planifié (mail principal ou "
+                         "rappel). Au rappel, le mail ne part que si la "
+                         "décision a changé ; écrit envoyer=true|false")
+    ap.add_argument("--journal", default=envois.JOURNAL,
+                    help="advise/bilan : journal des envois déjà faits")
     ap.add_argument("--with-history", action="store_true",
                     help="collect/run/initial-squad : collecte aussi les saisons "
                          "passées (un GET public par joueur, long). Nécessaire "
@@ -226,6 +264,8 @@ def main(argv=None):
         return _initial(contract, args.data_dir)
 
     cfg = load_config(args.config)
+    if args.command == "bilan":
+        return _bilan(cfg, args.data_dir, args.gw)
     if args.command in ("collect", "run"):
         run_dir = collect_all(cfg, args.data_dir, args.with_history)
         print(f"Snapshot : {run_dir}")
@@ -241,7 +281,8 @@ def main(argv=None):
     parsed = load_snapshot(run_dir, cfg)
     if args.command == "audit-effectif":
         return _audit(parsed, args.data_dir, args.semaines, args.freeze_projections)
-    return _advise(parsed, args.data_dir, args.freeze_projections)
+    return _advise(parsed, args.data_dir, args.freeze_projections,
+                   args.moment, args.journal)
 
 
 if __name__ == "__main__":

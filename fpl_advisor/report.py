@@ -8,7 +8,7 @@ Le rapport contient des données personnelles (effectif, ligue, noms) : il est
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import mail, rivals
+from . import bilan, mail, rivals
 from .evaluation import quality
 
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
@@ -502,6 +502,20 @@ def write_email(rec, data_dir="data", pieces=None):
     texte.write_text(mail.render_texte(rec, pieces=pieces), encoding="utf-8")
     (out / f"GW{rec['gw']}-sujet.txt").write_text(mail.sujet(rec), encoding="utf-8")
     return html, texte
+
+
+def write_bilan(b, data_dir="data"):
+    """Écrit le mail de bilan d'une journée jouée : HTML, texte, sujet."""
+    out = Path(data_dir) / "reports"
+    out.mkdir(parents=True, exist_ok=True)
+    base = out / f"GW{b['gw']}-bilan"
+    html = base.with_suffix(".html")
+    texte = base.with_suffix(".txt")
+    html.write_text(bilan.render_html(b), encoding="utf-8")
+    texte.write_text(bilan.render_texte(b), encoding="utf-8")
+    sujet = bilan.sujet(b)
+    (out / f"GW{b['gw']}-bilan-sujet.txt").write_text(sujet, encoding="utf-8")
+    return html, texte, sujet
 
 
 def render_initial(rec):

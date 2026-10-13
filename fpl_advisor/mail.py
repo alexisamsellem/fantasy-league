@@ -109,7 +109,8 @@ def sujet(rec, maintenant=None):
     else:
         quoi = "on garde tout"
     band = rec["armband"]["captain"]["web_name"]
-    return f"GW{rec['gw']} · {quoi} · {band} capitaine · {_quand(h)}"
+    tete = "CHANGEMENT · " if rec.get("changements") else ""
+    return f"{tete}GW{rec['gw']} · {quoi} · {band} capitaine · {_quand(h)}"
 
 
 # ------------------------------------------------------------ le fond ----
@@ -474,6 +475,22 @@ STYLE_SOMBRE = """
 #           lui, restait clair, et disparaissait.
 
 
+def _changements_html(rec, titre, police):
+    """Le rappel n'existe que parce que quelque chose a changé : c'est donc
+    la première chose qu'il montre, avant la décision complète."""
+    diff = rec.get("changements")
+    if not diff:
+        return ""
+    items = "".join(f'<li style="margin:0 0 6px;">{_gras(d)}</li>' for d in diff)
+    return (f'<tr><td style="padding:6px 22px 0;">'
+            f'{titre("Ça a changé depuis le premier mail")}'
+            f'<table role="presentation" width="100%" cellpadding="0" '
+            f'cellspacing="0"><tr><td style="background:#fef3c7;'
+            f'border:1px solid #f59e0b;border-radius:10px;padding:12px 16px;">'
+            f'<ul style="margin:0;padding-left:18px;font:400 14px/1.6 {police};'
+            f'color:#78350f;">{items}</ul></td></tr></table></td></tr>')
+
+
 def render_html(rec, maintenant=None, pieces=None):
     """Le mail. Décision, puis pourquoi, puis le onze, puis le contexte."""
     v = rec.get("verdict")
@@ -511,6 +528,8 @@ def render_html(rec, maintenant=None, pieces=None):
     <div style="margin-top:5px;font:700 16px/1.4 {police};color:#ffffff;">
       {_echap(_quand(h).capitalize())} pour jouer.</div>
   </td></tr>
+
+  {_changements_html(rec, titre, police)}
 
   <tr><td style="padding:6px 22px 0;">
     {titre("Ce que tu fais")}
@@ -577,6 +596,10 @@ def render_texte(rec, maintenant=None, pieces=None):
     v = rec.get("verdict")
     h = _heures(rec.get("deadline"), maintenant)
     out = [f"GW{rec['gw']} — {_quand(h)} pour jouer.", ""]
+    if rec.get("changements"):
+        out.append("ÇA A CHANGÉ DEPUIS LE PREMIER MAIL")
+        out += ["  - " + d.replace("**", "") for d in rec["changements"]]
+        out.append("")
     out.append("CE QUE TU FAIS")
     for titre, quoi, note in decisions(rec):
         out.append(f"  {titre} : {quoi} ({note})")

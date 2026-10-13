@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 """Combien d'heures avant la prochaine deadline FPL ? Un seul GET public.
 
-Sert de portier au conseiller automatique : une collecte complète coûte ~616
+Outil de diagnostic. Le workflow utilise désormais `scripts/envois.py`, qui
+décide aussi QUAND écrire (mail principal, rappel, bilan). Historique : ce
+script servait de portier au conseiller automatique — une collecte complète coûte ~616
 requêtes et quelques minutes. Les lancer tous les jours de la semaine pour une
 deadline située à cinq jours ne sert à rien, et remplit une boîte mail.
 

@@ -20,25 +20,21 @@ name: Conseiller FPL
 
 on:
   schedule:
-    # Quatre passages par jour en heure UTC, et c'est de la REDONDANCE, pas du
-    # zèle. Mesuré sur ce dépôt entre le 28 et le 31/08 : le planificateur de
-    # GitHub déclenche avec un retard systématique de ~5 h (un cron de 15:00
-    # parti à 20:42, un de 08:00 parti à 13:24), et le tout premier a été
-    # retardé de neuf heures. La documentation GitHub admet que les
-    # déclenchements planifiés peuvent être retardés, voire abandonnés.
+    # Toutes les heures, à la 17e minute (les crons « pile » sont les plus
+    # retardés). Ce n'est PAS un mail par heure : le portier (scripts/envois.py)
+    # lit la deadline et le journal des envois, et arrête le job après UNE
+    # requête tant qu'aucun envoi n'est dû.
     #
-    # Avec quatre horaires étalés, un retard de 5 h laisse toujours au moins un
-    # passage utile avant une deadline de fin d'après-midi. Le coût est nul :
-    # le portier de deadline arrête le job après UNE requête hors des 60 h qui
-    # précèdent une deadline.
-    - cron: "0 4 * * *"
-    - cron: "0 8 * * *"
-    - cron: "0 12 * * *"
-    - cron: "0 16 * * *"
+    # Pourquoi pas deux crons « vendredi 12 h » et « vendredi 17 h » : mesuré
+    # sur ce dépôt (passages des 8 et 9/10), le planificateur de GitHub part
+    # avec 4 h 30 à 7 h de retard. Un cron de 10 h UTC arriverait après la
+    # deadline. Un passage par heure rend le retard indolore : c'est l'heure
+    # RÉELLE de chaque passage qui décide, pas l'heure du cron.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       forcer:
-        description: "Ignorer le portier de deadline et tout exécuter"
+        description: "Envoyer tout de suite le conseil de la prochaine deadline"
         type: boolean
         default: false
 
@@ -47,7 +43,8 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write        # pour verser les projections figées (données publiques)
+  contents: write        # pour verser les projections figées et les calibrations
+  actions: write         # pour écrire le journal des envois dans le cache
 
 jobs:
   conseil:
@@ -60,22 +57,34 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Tests (un moteur cassé ne conseille rien)
-        run: python3 -m unittest discover -s tests
+      # Le journal dit ce qui est déjà parti. Il contient la décision envoyée
+      # (noms de joueurs, capitaine prévu) : jamais dans Git, toujours dans le
+      # cache, qui n'est lisible que par les workflows du dépôt.
+      - name: Journal des envois
+        uses: actions/cache/restore@v4
+        with:
+          path: data/envois
+          key: envois-${{ github.run_id }}
+          restore-keys: envois-
 
-      - name: Combien d'heures avant la deadline ?
-        id: portier
-        run: python3 scripts/prochaine_deadline.py --seuil 60
+      - name: Faut-il écrire au manager ?
+        id: plan
+        run: python3 scripts/envois.py planifier ${{ inputs.forcer && '--forcer' || '' }}
+
+      - name: Tests (un moteur cassé ne conseille rien)
+        if: steps.plan.outputs.agir == 'true'
+        run: python3 -m unittest discover -s tests
 
       - name: Vérifier que les secrets existent
         id: secrets
-        if: steps.portier.outputs.agir == 'true' || inputs.forcer
+        if: steps.plan.outputs.agir == 'true'
         env:
           TEAM: ${{ secrets.FPL_TEAM_ID }}
           LIGUES: ${{ secrets.FPL_LEAGUE_IDS }}
+          U: ${{ secrets.SMTP_UTILISATEUR }}
         run: |
-          if [ -z "$TEAM" ] || [ -z "$LIGUES" ]; then
-            echo "::error::FPL_TEAM_ID ou FPL_LEAGUE_IDS absent des secrets du dépôt."
+          if [ -z "$TEAM" ] || [ -z "$LIGUES" ] || [ -z "$U" ]; then
+            echo "::error::FPL_TEAM_ID, FPL_LEAGUE_IDS ou SMTP_UTILISATEUR absent des secrets du dépôt."
             exit 1
           fi
           echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -97,110 +106,23 @@ jobs:
           print(f"Configuration écrite : {len(ligues)} ligue(s).")
           PY
 
-      - name: Collecte (données publiques, lecture seule)
-        if: steps.secrets.outputs.ok == 'true'
-        run: python3 -m fpl_advisor collect --with-history
+      # ------------------------------------------------ bilan (après) ----
+      # Le bilan passe AVANT le conseil : les deux écrivent un snapshot, et le
+      # conseil doit relire le sien, le plus récent. Ses étapes ne bloquent
+      # jamais le conseil (continue-on-error) ; un bilan raté n'est pas noté
+      # au journal, le passage suivant réessaie.
 
-      # L'audit passe AVANT la décision : c'est `advise` qui rédige le mail,
-      # et le mail ne doit annoncer que des pièces jointes déjà sur disque.
-      - name: Audit d'effectif
-        if: steps.secrets.outputs.ok == 'true'
-        continue-on-error: true      # diagnostic : son échec ne doit rien bloquer
-        run: python3 -m fpl_advisor audit-effectif
+      - name: Bilan — analyser la journée jouée
+        id: bilan
+        if: steps.secrets.outputs.ok == 'true' && steps.plan.outputs.bilan_gw != ''
+        continue-on-error: true
+        run: python3 -m fpl_advisor bilan --gw ${{ steps.plan.outputs.bilan_gw }}
 
-      - name: Décision de la semaine (rédige aussi le mail)
-        if: steps.secrets.outputs.ok == 'true'
-        run: python3 -m fpl_advisor advise
-
-      - name: Figer les projections (aucune donnée personnelle)
-        if: steps.secrets.outputs.ok == 'true'
-        env:
-          GW: ${{ steps.portier.outputs.gw }}
+      - name: Bilan — noter le moteur (calibration, aucune donnée personnelle)
+        if: steps.bilan.outcome == 'success'
+        continue-on-error: true
         run: |
-          python3 -m fpl_advisor freeze --from-snapshot dernier \
-            --freeze-projections "projections-figees/projections-GW${GW}.json.gz"
-
-      - name: Verser le figeage au dépôt
-        if: steps.secrets.outputs.ok == 'true'
-        run: |
-          git config user.name "conseiller-fpl[bot]"
-          git config user.email "conseiller-fpl@users.noreply.github.com"
-          git add projections-figees/
-          if git diff --cached --quiet; then
-            echo "Figeage inchangé, rien à verser."
-          else
-            git commit -m "Fige les projections GW${{ steps.portier.outputs.gw }} (automatique)"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          fi
-
-      - name: Conserver les rapports (privés, 30 jours)
-        if: steps.secrets.outputs.ok == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: rapports-gw${{ steps.portier.outputs.gw }}
-          path: data/reports/*.md
-          retention-days: 30
-          if-no-files-found: warn
-
-      - name: Envoyer le rapport par e-mail
-        if: steps.secrets.outputs.ok == 'true'
-        shell: bash
-        env:
-          SMTP_UTILISATEUR: ${{ secrets.SMTP_UTILISATEUR }}
-          SMTP_MOTDEPASSE: ${{ secrets.SMTP_MOTDEPASSE }}
-          MAIL_DESTINATAIRE: ${{ secrets.MAIL_DESTINATAIRE }}
-          GW: ${{ steps.portier.outputs.gw }}
-          HEURES: ${{ steps.portier.outputs.heures }}
-        run: |
-          RECO=$(ls -t data/reports/GW*-recommandation-*.md 2>/dev/null | head -1)
-          AUDIT=$(ls -t data/reports/GW*-audit-effectif-*.md 2>/dev/null | head -1)
-          HTML="data/reports/GW${GW}-mail.html"
-          TEXTE="data/reports/GW${GW}-mail.txt"
-          SUJET_F="data/reports/GW${GW}-sujet.txt"
-          if [ ! -f "$TEXTE" ]; then
-            echo "::error::Aucun mail produit par advise."
-            exit 1
-          fi
-          # Le sujet vient du moteur : il porte l'échange et le capitaine, pas
-          # seulement le numéro de journée.
-          SUJET=$(cat "$SUJET_F" 2>/dev/null || echo "FPL GW${GW} — deadline dans ${HEURES} h")
-          ARGS=(--sujet "$SUJET" --corps "$TEXTE")
-          if [ -f "$HTML" ]; then ARGS+=(--html "$HTML"); fi
-          # Le rapport complet et l'audit partent en pièce jointe : le mail
-          # décide, les pièces jointes prouvent.
-          if [ -n "$RECO" ]; then ARGS+=(--piece-jointe "$RECO"); fi
-          if [ -n "$AUDIT" ]; then ARGS+=(--piece-jointe "$AUDIT"); fi
-          python3 scripts/envoyer_rapport.py "${ARGS[@]}"
-
-  calibration:
-    # Noter les journées jouées. Séparé du conseil : ça ne dépend d'aucun
-    # secret, d'aucun effectif, et ça doit tourner même quand aucune deadline
-    # n'approche.
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Collecte publique (résultats des journées closes)
-        run: |
-          mkdir -p data/reference
-          cp reference/team_priors.csv data/reference/team_priors.csv
-          python3 - <<'PY'
-          from fpl_advisor.collect import collect_public
-          print("Snapshot :", collect_public("data"))
-          PY
-
-      - name: Noter les journées figées et jouées
-        id: noter
-        run: python3 scripts/calibrer_en_attente.py | tee /tmp/calibration.txt
-
-      - name: Verser les rapports de calibration (aucune donnée personnelle)
-        run: |
+          python3 scripts/calibrer_en_attente.py
           git config user.name "conseiller-fpl[bot]"
           git config user.email "conseiller-fpl@users.noreply.github.com"
           git add calibrations/ 2>/dev/null || true
@@ -212,26 +134,126 @@ jobs:
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
-      - name: Le mail est-il configuré ?
-        id: mail
-        env:
-          U: ${{ secrets.SMTP_UTILISATEUR }}
-        run: |
-          if [ -n "$U" ]; then echo "ok=true" >> "$GITHUB_OUTPUT";
-          else echo "SMTP_UTILISATEUR absent : pas d'envoi."; fi
-
-      - name: Envoyer le score par e-mail, s'il y en a un nouveau
-        if: steps.mail.outputs.ok == 'true'
+      - name: Bilan — envoyer
+        id: envoi_bilan
+        if: steps.bilan.outcome == 'success'
+        continue-on-error: true
         env:
           SMTP_UTILISATEUR: ${{ secrets.SMTP_UTILISATEUR }}
           SMTP_MOTDEPASSE: ${{ secrets.SMTP_MOTDEPASSE }}
           MAIL_DESTINATAIRE: ${{ secrets.MAIL_DESTINATAIRE }}
+          GW: ${{ steps.plan.outputs.bilan_gw }}
         run: |
-          if grep -q "^0 journée" /tmp/calibration.txt; then
-            echo "Rien de neuf à annoncer."
-            exit 0
+          ARGS=(--sujet "$(cat "data/reports/GW${GW}-bilan-sujet.txt")"
+                --corps "data/reports/GW${GW}-bilan.txt"
+                --html "data/reports/GW${GW}-bilan.html")
+          if [ -f "calibrations/GW${GW}-calibration.md" ]; then
+            ARGS+=(--piece-jointe "calibrations/GW${GW}-calibration.md")
           fi
-          python3 scripts/envoyer_rapport.py \
-            --sujet "FPL — nouveau score de calibration" \
-            --texte "$(cat /tmp/calibration.txt)" \
-            $(for f in calibrations/*.md; do printf ' --piece-jointe %s' "$f"; done)
+          python3 scripts/envoyer_rapport.py "${ARGS[@]}"
+
+      - name: Bilan — noter l'envoi au journal
+        if: steps.envoi_bilan.outcome == 'success'
+        run: python3 scripts/envois.py noter --gw ${{ steps.plan.outputs.bilan_gw }} --moment bilan
+
+      # ------------------------------------------- conseil (avant) ----
+
+      - name: Collecte (données publiques, lecture seule)
+        if: steps.secrets.outputs.ok == 'true' && steps.plan.outputs.conseil != 'rien'
+        run: python3 -m fpl_advisor collect --with-history
+
+      # L'audit passe AVANT la décision : c'est `advise` qui rédige le mail,
+      # et le mail ne doit annoncer que des pièces jointes déjà sur disque.
+      - name: Audit d'effectif
+        if: steps.secrets.outputs.ok == 'true' && steps.plan.outputs.conseil != 'rien'
+        continue-on-error: true      # diagnostic : son échec ne doit rien bloquer
+        run: python3 -m fpl_advisor audit-effectif
+
+      # Au rappel, `advise` compare sa décision à celle du mail principal et
+      # écrit envoyer=false si rien n'a bougé.
+      - name: Décision de la semaine (rédige aussi le mail)
+        id: advise
+        if: steps.secrets.outputs.ok == 'true' && steps.plan.outputs.conseil != 'rien'
+        run: python3 -m fpl_advisor advise --moment ${{ steps.plan.outputs.conseil }}
+
+      - name: Figer les projections (aucune donnée personnelle)
+        if: steps.advise.outcome == 'success'
+        env:
+          GW: ${{ steps.plan.outputs.gw }}
+        run: |
+          python3 -m fpl_advisor freeze --from-snapshot dernier \
+            --freeze-projections "projections-figees/projections-GW${GW}.json.gz"
+
+      - name: Verser le figeage au dépôt
+        if: steps.advise.outcome == 'success'
+        run: |
+          git config user.name "conseiller-fpl[bot]"
+          git config user.email "conseiller-fpl@users.noreply.github.com"
+          git add projections-figees/
+          if git diff --cached --quiet; then
+            echo "Figeage inchangé, rien à verser."
+          else
+            git commit -m "Fige les projections GW${{ steps.plan.outputs.gw }} (automatique)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Conserver les rapports (privés, 30 jours)
+        if: steps.advise.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rapports-gw${{ steps.plan.outputs.gw }}-${{ steps.plan.outputs.conseil }}
+          path: data/reports/*.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Envoyer le conseil par e-mail
+        id: envoi_conseil
+        if: steps.advise.outputs.envoyer == 'true'
+        shell: bash
+        env:
+          SMTP_UTILISATEUR: ${{ secrets.SMTP_UTILISATEUR }}
+          SMTP_MOTDEPASSE: ${{ secrets.SMTP_MOTDEPASSE }}
+          MAIL_DESTINATAIRE: ${{ secrets.MAIL_DESTINATAIRE }}
+          GW: ${{ steps.plan.outputs.gw }}
+          HEURES: ${{ steps.plan.outputs.heures }}
+        run: |
+          RECO=$(ls -t data/reports/GW*-recommandation-*.md 2>/dev/null | head -1)
+          AUDIT=$(ls -t data/reports/GW*-audit-effectif-*.md 2>/dev/null | head -1)
+          HTML="data/reports/GW${GW}-mail.html"
+          TEXTE="data/reports/GW${GW}-mail.txt"
+          SUJET_F="data/reports/GW${GW}-sujet.txt"
+          if [ ! -f "$TEXTE" ]; then
+            echo "::error::Aucun mail produit par advise."
+            exit 1
+          fi
+          # Le sujet vient du moteur : il porte l'échange et le capitaine, et
+          # « CHANGEMENT » quand c'est un rappel.
+          SUJET=$(cat "$SUJET_F" 2>/dev/null || echo "FPL GW${GW} — deadline dans ${HEURES} h")
+          ARGS=(--sujet "$SUJET" --corps "$TEXTE")
+          if [ -f "$HTML" ]; then ARGS+=(--html "$HTML"); fi
+          # Le rapport complet et l'audit partent en pièce jointe : le mail
+          # décide, les pièces jointes prouvent.
+          if [ -n "$RECO" ]; then ARGS+=(--piece-jointe "$RECO"); fi
+          if [ -n "$AUDIT" ]; then ARGS+=(--piece-jointe "$AUDIT"); fi
+          python3 scripts/envoyer_rapport.py "${ARGS[@]}"
+
+      # Un envoi forcé à la main n'entre pas au journal : il ne doit pas
+      # empêcher le mail de 12 h ni le rappel de 17 h.
+      - name: Noter le passage au journal
+        if: >-
+          steps.plan.outputs.force != 'true' &&
+          steps.advise.outcome == 'success' &&
+          (steps.envoi_conseil.outcome == 'success' || steps.advise.outputs.envoyer == 'false')
+        run: |
+          python3 scripts/envois.py noter --gw ${{ steps.plan.outputs.gw }} \
+            --moment ${{ steps.plan.outputs.conseil }} \
+            --envoye ${{ steps.advise.outputs.envoyer }} \
+            --decision "data/reports/GW${{ steps.plan.outputs.gw }}-decision.json"
+
+      - name: Sauver le journal des envois
+        if: always() && steps.plan.outputs.agir == 'true' && hashFiles('data/envois/journal.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: data/envois
+          key: envois-${{ github.run_id }}-${{ github.run_attempt }}
