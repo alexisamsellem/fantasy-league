@@ -22,12 +22,17 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .. import scoring
+from . import distribution as simulation
 from . import priors
 from .minutes import appearance_history, minutes_model
 from .projection import project_horizon, project_player
-from .teams import team_factors
+from .teams import fixture_lambdas, team_factors, team_fixtures_for_gw
 
-CONTRACT_VERSION = "1.0"
+# 1.1 : distribution simulée par ligne (`dist`), calendrier et λ par match
+# (`matchs`), métadonnées de simulation (`distribution`). Un contrat 1.0 se
+# relit toujours : `from_dict` le migre (voir `migrate_1_0`).
+CONTRACT_VERSION = "1.1"
 MODEL_VERSION = "forecasting/0.4.0"
 
 # Minutes forcées servant à isoler le risque de titularisation (colonne
@@ -53,6 +58,7 @@ class PlayerProjection:
     scenarios: dict               # {"prudent": ep, "central": ep, "favorable": ep}
     confidence: str               # faible | moyenne | n/a
     provenance: dict              # base des minutes, des taux, du DEFCON
+    dist: dict = None             # 1.1 : {mean, q (P5…P95), p_ge_6, p_ge_10}
 
 
 @dataclass
@@ -76,6 +82,8 @@ class ProjectionSet:
     players: dict                 # id (str) -> métadonnées joueur
     teams: dict                   # id (str) -> nom court du club
     rows: list = field(default_factory=list)
+    matchs: dict = None           # 1.1 : gw (str) -> [[h, a, λ_h, λ_a], …]
+    distribution: dict = None     # 1.1 : {n, seed, methode} ou migration
 
     # ------------------------------------------------------------ lecture ----
 
@@ -137,7 +145,7 @@ class ProjectionSet:
                 "defcon_basis": r.provenance.get("defcon", ""),
                 "components": r.components, "n_fixtures": r.n_fixtures,
                 "status": m.get("status", "a"), "news": m.get("news", ""),
-                "eps": row["eps"], "ep4": row["ep4"],
+                "eps": row["eps"], "ep4": row["ep4"], "dist": r.dist,
             })
         out.sort(key=lambda r: order[r["id"]])
         return out
@@ -149,9 +157,30 @@ class ProjectionSet:
         d["rows"] = [asdict(r) if not isinstance(r, dict) else r for r in self.rows]
         return d
 
+    def fixtures_for(self, gw):
+        """[(h, a)] et {(h, a): (λ_h, λ_a)} d'une GW, ou (None, None)."""
+        fx = (self.matchs or {}).get(str(gw))
+        if fx is None:
+            return None, None
+        return ([(h, a) for h, a, _, _ in fx],
+                {(h, a): (lh, la) for h, a, lh, la in fx})
+
+    def simulate(self, gw, n=simulation.N_TIRAGES, seed=simulation.GRAINE,
+                 partage=True):
+        """Tirages joints {player_id: [points]} d'une GW : l'aléa d'équipe est
+        partagé, donc des sommes sur plusieurs joueurs restent correctes."""
+        fx, lam = self.fixtures_for(gw)
+        if fx is None:
+            raise ValueError(f"GW{gw} : contrat sans calendrier, distribution "
+                             "impossible — migrer avec migrate_1_0(contrat, fixtures)")
+        return simulation.simulate_gw(self.rows, self.players, gw, fx, lam,
+                                        n=n, seed=seed, partage=partage)
+
     @classmethod
     def from_dict(cls, d):
         d = dict(d)
+        if d.get("contract_version") == "1.0":
+            d = _migrate_dict_1_0(d)
         rows = [PlayerProjection(**r) for r in d.pop("rows", [])]
         obj = cls(**d, rows=rows)
         # Les clés de GW repassent en entiers après un aller-retour JSON.
@@ -246,7 +275,19 @@ def build_projection_set(parsed, gws, as_of=None):
                                 "apps": minutes["n_apps_obs"]}},
             ))
 
-    return ProjectionSet(
+    matchs = {}
+    for gw in gws:
+        vus, fx = set(), []
+        for t in boot.get("teams", []):
+            for f in team_fixtures_for_gw(parsed["fixtures"], t["id"], gw):
+                if f.get("id", id(f)) in vus:
+                    continue
+                vus.add(f.get("id", id(f)))
+                lh, la = fixture_lambdas(f, factors)
+                fx.append([f["team_h"], f["team_a"], lh, la])
+        matchs[str(gw)] = fx
+
+    pset = ProjectionSet(
         contract_version=CONTRACT_VERSION, model_version=MODEL_VERSION,
         as_of=as_of or parsed.get("as_of")
         or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -266,4 +307,58 @@ def build_projection_set(parsed, gws, as_of=None):
         teams={str(t["id"]): t.get("short_name", str(t["id"]))
                for t in boot.get("teams", [])},
         rows=rows,
+        matchs=matchs,
     )
+    attach_distributions(pset)
+    return pset
+
+
+def attach_distributions(pset, n=simulation.N_TIRAGES, seed=simulation.GRAINE):
+    """Remplit `dist` sur chaque ligne à partir des tirages joints."""
+    for gw in pset.horizon:
+        tirages = pset.simulate(gw, n=n, seed=seed)
+        for r in pset.rows:
+            if r.gw == gw:
+                r.dist = simulation.summarize(tirages[r.player_id])
+    pset.distribution = {"n": n, "seed": seed,
+                         "methode": "Monte-Carlo, buts d'équipe partagés "
+                                    "(forecasting/distribution.py)"}
+    return pset
+
+
+def _migrate_dict_1_0(d):
+    """1.0 → 1.1 en mémoire : les champs nouveaux sont posés à vide. Le
+    fichier figé n'est jamais réécrit — c'est une pièce à conviction."""
+    d = dict(d)
+    d["contract_version"] = "1.1"
+    d["matchs"] = None
+    d["distribution"] = {"migre_de": "1.0", "calcule": False}
+    d["rows"] = [dict(r, dist=None) for r in d.get("rows", [])]
+    return d
+
+
+def migrate_1_0(pset, fixtures_by_gw, n=simulation.N_TIRAGES,
+                seed=simulation.GRAINE):
+    """Complète un contrat 1.0 relu : calendrier puis distributions.
+
+    `fixtures_by_gw` : {gw: [(team_h, team_a)]}, connu avant la deadline. Les
+    λ de chaque match se relisent exactement dans les composantes clean
+    sheet (journées simples) ; aucune projection n'est recalculée."""
+    pset.matchs = {}
+    for gw in pset.horizon:
+        fx = fixtures_by_gw.get(gw)
+        if fx is None:
+            continue
+        lc = simulation.lambdas_contre(pset.rows, pset.players, gw)
+        avg = scoring.LEAGUE_AVG_GOALS
+        pset.matchs[str(gw)] = [[h, a, lc.get(a, avg), lc.get(h, avg)]
+                                  for h, a in fx]
+    gws = [g for g in pset.horizon if str(g) in pset.matchs]
+    for gw in gws:
+        tirages = pset.simulate(gw, n=n, seed=seed)
+        for r in pset.rows:
+            if r.gw == gw:
+                r.dist = simulation.summarize(tirages[r.player_id])
+    pset.distribution = {"n": n, "seed": seed, "migre_de": "1.0",
+                         "gws": gws, "calcule": True}
+    return pset

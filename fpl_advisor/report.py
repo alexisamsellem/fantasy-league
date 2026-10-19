@@ -37,17 +37,26 @@ def _alerte(r):
     return " ".join(x for x in (f"**{mot}**" if mot else "", news) if x)
 
 
+def _fourchette(r):
+    """P10–P90 de la distribution simulée (contrat 1.1), sinon « — »."""
+    d = r.get("dist")
+    if not d:
+        return "—"
+    return f"{d['q'][1]:.0f}–{d['q'][5]:.0f}"
+
+
 def _row(r, teams):
     return (f"| {r['web_name']} | {POS[r['element_type']]} | "
             f"{teams.get(r['team'], r['team'])} | {r['ep']:.2f} | "
+            f"{_fourchette(r)} | "
             f"{_pct(r['p_play'])} | {_pct(r['p60'])} | {r['ep_if_start']:.2f} | "
             f"{_alerte(r)} |")
 
 
 def _xi_lines(xi, teams, title="XI recommandé"):
     lines = [f"\n## {title}",
-             "\n| Joueur | Poste | Club | EP | P(jouer) | P(60+) | EP si 90' | Alerte |",
-             "|---|---|---|---|---|---|---|---|"]
+             "\n| Joueur | Poste | Club | EP | P10–P90 | P(jouer) | P(60+) | EP si 90' | Alerte |",
+             "|---|---|---|---|---|---|---|---|---|"]
     order = {1: 0, 2: 1, 3: 2, 4: 3}
     for r in sorted(xi, key=lambda x: (order[x["element_type"]], -x["ep"])):
         lines.append(_row(r, teams))
@@ -403,11 +412,15 @@ def render(rec):
         "DEFCON et bonus rétrécis vers des priors de poste (bonus rapporté aux "
         "minutes réellement jouées, non à un nombre d'apparitions approximé). "
         "EP = somme des composantes.",
-        "\nIncertitude essentielle : la colonne « EP si 90' » isole le risque de "
-        "minutes — un grand écart avec EP signale que la décision dépend surtout "
-        "de la titularisation, pas du talent.",
-        "\nHypothèses critiques [H] : indépendance entre joueurs (pas de "
-        "corrélations de score en V0) ; minutes supposées persistantes sur "
+        "\nIncertitude essentielle : la colonne « P10–P90 » donne la fourchette "
+        "de points simulée (8 fois sur 10 le joueur finit dedans) ; les buts de "
+        "chaque équipe sont tirés une fois par match et partagés par ses "
+        "joueurs, de sorte que deux défenseurs gagnent ou perdent leur clean "
+        "sheet ensemble. La colonne « EP si 90' » isole le risque de minutes — "
+        "un grand écart avec EP signale que la décision dépend surtout de la "
+        "titularisation, pas du talent.",
+        "\nHypothèses critiques [H] : bonus et arrêts tirés indépendamment des "
+        "buts dans la simulation ; minutes supposées persistantes sur "
         f"l'horizon de {tr['horizon']} GW ; forces d'équipe FPL comme proxy "
         "d'adversité (pas de cotes en V0) ; seuil de transfert fixe ; barème "
         "codé dans `fpl_advisor/scoring.py` au statut [F◦] tant que le rapport "

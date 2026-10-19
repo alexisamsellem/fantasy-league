@@ -66,6 +66,24 @@ sources.
 Il ne contient **aucune donnée brute** : ni `bootstrap`, ni `fixtures`, ni
 `live`, ni historique. Un test le vérifie.
 
+**Version 1.1** (19/10/2026). Chaque ligne porte en plus `dist`, le résumé
+d'une distribution de points simulée (moyenne, P5…P95, P(≥ 6), P(≥ 10)), et
+le fichier porte `matchs` — pour chaque GW, `[équipe domicile, extérieur,
+λ_dom, λ_ext]`, ce qu'il faut pour rejouer la simulation — et `distribution`
+(nombre de tirages, graine). `ProjectionSet.simulate(gw)` rend les tirages
+JOINTS : les buts de chaque match sont tirés une fois et partagés par les
+joueurs des deux équipes, donc une somme sur un XI reste juste. Un contrat
+1.0 se relit toujours : `from_dict` le migre en mémoire (champs nouveaux à
+vide), et `migrate_1_0(contrat, calendrier)` le complète sans recalculer une
+seule projection — les λ se relisent dans les composantes clean sheet. Les
+fichiers de `projections-figees/` ne sont jamais réécrits. Mesure :
+`calibrations/banc-distributions.md`.
+
+Les trois scénarios restent dans le contrat, pour ce qu'ils sont : trois
+jeux de priors, qui servent au contrôle de stabilité des décisions. Ce ne
+sont pas des issues de match ; l'incertitude de points affichée dans le
+rapport est désormais la fourchette P10–P90 simulée.
+
 ```bash
 # Figer les projections dans un fichier
 python3 -m fpl_advisor initial-squad --demo --freeze-projections projections.json
