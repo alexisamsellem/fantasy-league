@@ -456,10 +456,14 @@ class MinutesObserveesTests(unittest.TestCase):
         P(60+) valait 55 % avant la correction A9 de P60_GIVEN_START
         (0.88 → 0.954, mesurée sur 660 titularisations). Le déplacement est
         celui attendu : 0.55 × 0.954 / 0.88 = 0.60. P(jouer) ne bouge pas —
-        la constante ne porte que sur le seuil des 60 minutes."""
+        la constante ne porte que sur le seuil des 60 minutes.
+
+        Depuis A10 (recalibration de Platt apprise sur GW2–GW6), P(60+) brut
+        0.60 devient σ(0.4255 + 1.3716 · logit 0.60) = 0.73, et P(jouer) est
+        relevé au même niveau : on ne peut pas jouer 60 minutes sans jouer."""
         m = self._minutes({"minutes": 0, "started": False})
-        self.assertAlmostEqual(m["p_play"], 0.63, places=2)
-        self.assertAlmostEqual(m["p60"], 0.60, places=2)
+        self.assertAlmostEqual(m["p60"], 0.727, places=2)
+        self.assertAlmostEqual(m["p_play"], m["p60"], places=9)
         self.assertEqual(m["avail"], 1.0)      # aucun flag d'infirmerie
 
     def test_le_contrat_transporte_le_fait_observe(self):

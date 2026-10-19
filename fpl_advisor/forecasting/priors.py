@@ -201,6 +201,19 @@ PLAY_RATE_PRIOR = {1: 0.38, 2: 0.55, 3: 0.58, 4: 0.58}
 # À re-mesurer quand la saison aura accumulé plus de journées.
 P60_GIVEN_START = 0.954
 
+# MESURÉ. Recalibration de Platt de P(60+) : p' = σ(a + b·logit p), appliquée
+# à la probabilité centrale AVANT l'inclinaison de scénario. Ajustée le
+# 19/10/2026 par maximum de vraisemblance sur les contrats FIGÉS GW2–GW6
+# (projections-figees/, modèle 0.3.1) contre les minutes réelles
+# (resultats-observes/) : 2 801 joueurs. Défaut corrigé : la tranche 60–80 %
+# annoncée s'est réalisée à 86/84/74/81/86 % sur les cinq journées.
+# Contrôle sans regard vers l'avant (carte de la GW k ajustée sur les GW < k,
+# notée sur GW3–GW6) : Brier 0,1132 → 0,1078, IC 95 % par grappes de l'écart
+# [−0,0082 ; −0,0025], Diebold-Mariano p = 0,12 sur 4 journées.
+# Jugée seulement sur les journées POSTÉRIEURES à GW6. Voir A10 et
+# tests/test_recalibration.py.
+P60_RECAL = (0.4255, 1.3716)
+
 XG90_PRIOR = {1: 0.00, 2: 0.05, 3: 0.15, 4: 0.30}
 XA90_PRIOR = {1: 0.00, 2: 0.07, 3: 0.14, 4: 0.11}
 BONUS90_PRIOR = {1: 0.12, 2: 0.14, 3: 0.15, 4: 0.20}

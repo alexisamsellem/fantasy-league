@@ -5,12 +5,24 @@ Seul endroit qui décide combien de minutes un joueur va jouer. Les taux
 offensifs (`rates`) et la projection finale (`projection`) consomment
 cette sortie sans la recalculer."""
 
+import math
+
 from . import priors
 
 CAMEO_MINUTES = 25
 SEASON_MATCHES = 38          # longueur de saison pour les taux d'une saison passée [H]
 
 # ---------------------------------------------------------------- minutes ----
+
+def platt(p, a, b, eps=1e-4):
+    """σ(a + b·logit p). 0 et 1 sont des faits (indisponible, certain), pas
+    des estimations : ils traversent la carte intacts."""
+    if p <= 0.0 or p >= 1.0:
+        return p
+    q = min(1 - eps, max(eps, p))
+    x = a + b * math.log(q / (1 - q))
+    return 1 / (1 + math.exp(-x)) if x >= 0 else math.exp(x) / (1 + math.exp(x))
+
 
 def live_index(parsed):
     """{gw: {element_id: stats}} — construit une fois, mis en cache."""
@@ -153,7 +165,10 @@ def minutes_model(player, history, elements=None, parsed=None, scenario=None):
 
     r_play = max(r_play, r_start)
     tilt = scenario["minutes_tilt"]
-    p60 = min(avail, avail * r_start * priors.P60_GIVEN_START * tilt)
+    # La carte de recalibration a été apprise sur la probabilité CENTRALE
+    # (tilt = 1) : elle s'applique avant l'inclinaison de scénario.
+    p60_brut = min(avail, avail * r_start * priors.P60_GIVEN_START)
+    p60 = min(avail, platt(p60_brut, *priors.P60_RECAL) * tilt)
     p_play = min(avail, max(avail * r_play * tilt, p60))
     p_cameo = max(0.0, p_play - p60)
     xmin = 90 * p60 + CAMEO_MINUTES * p_cameo

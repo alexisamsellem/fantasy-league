@@ -413,17 +413,21 @@ class P60SiTitulaireTests(unittest.TestCase):
         exact : p60 est strictement proportionnel à P60_GIVEN_START. Si un jour
         le plafond s'active, l'effet d'un changement de constante devient
         non linéaire et cette régression le signale.
+
+        Depuis A10, la proportionnalité porte sur la probabilité BRUTE, avant
+        la carte de recalibration : on la neutralise (a=0, b=1) pour la lire.
         """
         joueur = {"id": 1, "element_type": 3, "status": "a",
                   "chance_of_playing_next_round": None}
         historique = [{"minutes": 90, "started": True}] * 6
-        base = minutes.minutes_model(joueur, historique)["p60"]
-        ancienne = self.priors.P60_GIVEN_START
+        ancienne, carte = self.priors.P60_GIVEN_START, self.priors.P60_RECAL
         try:
+            self.priors.P60_RECAL = (0.0, 1.0)
+            base = minutes.minutes_model(joueur, historique)["p60"]
             self.priors.P60_GIVEN_START = ancienne / 2
             moitie = minutes.minutes_model(joueur, historique)["p60"]
         finally:
-            self.priors.P60_GIVEN_START = ancienne
+            self.priors.P60_GIVEN_START, self.priors.P60_RECAL = ancienne, carte
         self.assertAlmostEqual(moitie, base / 2, places=9)
         self.assertLess(base, 1.0)
 

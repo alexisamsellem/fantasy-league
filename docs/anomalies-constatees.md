@@ -366,3 +366,64 @@ corrigé** : aucune mesure directe de cette constante n'existe, et son effet
 est confondu avec la faible taille de l'historique — la modifier maintenant
 reviendrait à l'ajuster sur deux journées. À reprendre vers la GW6, quand
 l'historique observé pèsera plus que le prior.
+
+
+## A10 — P(60+) trop prudent dans la tranche 60–80 %, cinq journées sur cinq — CORRIGÉ
+
+**Constaté le** 19/10/2026, en relisant les cinq calibrations GW2–GW6.
+**Sévérité** : haute — P(60+) porte les points de présence, les clean sheets
+et le risque de capitaine ; le biais sous-cotait les titulaires probables.
+
+Tranche 60–80 % annoncée, sur les contrats figés (modèle 0.3.1) :
+
+| Journée | Joueurs | Annoncé | Observé | Écart |
+|---|---|---|---|---|
+| GW2 | 70 | 71 % | 86 % | +15 |
+| GW3 | 79 | 70 % | 84 % | +14 |
+| GW4 | 91 | 69 % | 74 % | +5 |
+| GW5 | 97 | 70 % | 81 % | +11 |
+| GW6 | 94 | 71 % | 86 % | +15 |
+
+Le défaut de la tranche 40–60 % (signalé en A9) a persisté lui aussi.
+
+**Correction** : recalibration de Platt `p' = σ(a + b·logit p)` appliquée au
+P(60+) central, avant l'inclinaison de scénario (`priors.P60_RECAL`,
+`minutes.platt`). Deux paramètres seulement : une courbe libre apprendrait le
+bruit de 550 joueurs par journée. P(jouer) est relevé à P(60+) quand la carte
+le dépasse. `MODEL_VERSION` passe à `forecasting/0.4.0`.
+
+**Contrôle sans regard vers l'avant** (`evaluation/recalibration.walk_forward`) :
+la carte qui note la GW k est ajustée sur les GW < k seulement.
+
+| Journée notée | Ajustée sur | a | b | Brier brut | recalibré |
+|---|---|---|---|---|---|
+| GW3 | GW2 | 0.561 | 1.382 | 0.1275 | 0.1155 |
+| GW4 | GW2–3 | 0.612 | 1.466 | 0.1145 | 0.1150 |
+| GW5 | GW2–4 | 0.439 | 1.395 | 0.1063 | 0.1011 |
+| GW6 | GW2–5 | 0.438 | 1.386 | 0.1045 | 0.0994 |
+
+Poolé GW3–GW6 (VÉRIFIÉ, 19/10/2026) : Δ Brier −0,0054, IC 95 % bootstrap
+par grappes (GW, équipe) [−0,0082 ; −0,0025] ; Diebold-Mariano sur 4
+journées p = 0,12 (GW4 légèrement pire). Tranche 60–80 % : écart +11 → −1,5
+point. Log-loss 0,357 → 0,344. Effet de bord mesuré : Brier de P(jouer)
+−0,0021, IC [−0,0029 ; −0,0013].
+
+Effet sur les POINTS (DÉDUIT : ep recomposé depuis les composantes figées,
+exact pour la carte identité, approché pour le malus des GB/DEF) : Δ MSE
+−0,069 par rapport à `ep` figé, meilleur sur 4 journées sur 4, DM p = 0,011,
+IC bootstrap [−0,152 ; +0,009]. Biais moyen −0,10 → +0,02 pt.
+
+**Verdict honnête** : amélioration sur chaque mesure, mais **non prouvée**
+selon la règle du banc d'essai (bootstrap ET Diebold-Mariano au seuil de
+5 %) : sur le Brier, DM ne conclut pas avec 4 journées ; sur les points, c'est
+le bootstrap. La carte livrée (a = 0,4255, b = 1,3716) est ajustée sur
+GW2–GW6 ; elle ne sera jugée que sur GW7 et suivantes.
+
+**Ce qui surcorrige déjà** : hors échantillon, la tranche 80–100 % passe de
+−8 (prudent) à +3 points (trop confiant), et 20–40 % de −1 à +5. À surveiller,
+pas à retoucher sur cet échantillon.
+
+**Régression** : `tests/test_recalibration.py` — la constante doit être
+l'ajustement de l'archive GW2–GW6, le défaut répété doit y rester visible, et
+le walk-forward doit garder le Brier en baisse et la tranche 60–80 % à moins
+de 5 points.
