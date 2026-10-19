@@ -34,6 +34,8 @@ from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from .optimization.weekly import libelle as libelle_transfert
+
 PARIS = ZoneInfo("Europe/Paris")
 JOURNAL = "data/envois/journal.json"
 
@@ -210,8 +212,7 @@ def decision(rec):
     ap = rec.get("apres_transfert")
     band = (ap or rec)["armband"]
     if tr["decision"] == "transférer" and tr["candidates"]:
-        c = tr["candidates"][0]
-        transfert = f"{c['out']['web_name']} → {c['in']['web_name']}"
+        transfert = libelle_transfert(tr)
     else:
         transfert = "aucun"
     return {

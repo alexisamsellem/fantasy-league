@@ -18,6 +18,7 @@ Ce qui change par rapport au mode effectif initial :
   recommandation.
 """
 
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from . import wiring
@@ -64,14 +65,44 @@ def pending_transfers(parsed, gw):
     return [t for t in faits if t.get("event") == gw]
 
 
+def free_transfers(parsed):
+    """Transferts gratuits disponibles pour la prochaine GW, reconstitués
+    depuis l'historique public du manager (`entry/{id}/history`).
+
+    Règle FPL depuis 2024/25 [F◦] : un gratuit pour la GW2, puis +1 par GW,
+    plafond 5 ; un transfert payé ne consomme rien de plus ; Wildcard et Free
+    Hit ne consomment pas les gratuits [H : le +1 de la GW est supposé
+    acquis aussi]. Sans historique lisible : 1, l'hypothèse historique."""
+    hist = (parsed.get("my") or {}).get("history") or {}
+    cur = sorted(hist.get("current") or [], key=lambda h: h["event"])
+    if not cur:
+        return 1, "historique illisible — 1 gratuit supposé [H]"
+    chips = {c.get("event"): c.get("name") for c in hist.get("chips") or []}
+    ft = None
+    for h in cur:
+        g = h["event"]
+        if g == 1 or ft is None:
+            ft = 1                       # le gratuit de la GW suivante
+            continue
+        n = h.get("event_transfers") or 0
+        if chips.get(g) in ("wildcard", "freehit"):
+            n = 0
+        ft = min(5, max(0, ft - n) + 1)
+    return ft, f"reconstitué sur {len(cur)} GW d'historique public"
+
+
 def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
-                        already_transferred=None, pick_gw=None):
+                        already_transferred=None, pick_gw=None, gratuits=1):
     """Étapes 2 à 4 : décision, évaluation, mise en forme.
 
     N'accède à AUCUNE donnée brute : tout vient du contrat et des identifiants
     de l'effectif. `now` est explicite pour que le verdict reste reproductible.
     """
     backend = backend or wiring.selection_backend()
+    if backend.weekly is not None and gratuits != 1:
+        inner = backend.weekly
+        backend = replace(backend, weekly=lambda *a, **k: inner(
+            *a, **dict(k, free_transfers=gratuits)))
     now = now or datetime.now(timezone.utc)
     gws = list(contract.horizon)
     gw = contract.gw
@@ -109,7 +140,7 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
     apres = central.get("apres_transfert")
     besoin = list(read_ids)
     if apres:
-        besoin.append(apres["in"]["id"])
+        besoin += [e[1]["id"] for e in apres.get("echanges", [(None, apres["in"])])]
     display = {r["id"]: r for r in contract.display_rows(besoin, gw)}
 
     def shown(rows):
@@ -124,9 +155,12 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
         b = apres["armband"]
         apres = dict(
             apres, xi=shown(apres["xi"]), bench=shown(apres["bench"]),
-            out=display[apres["out"]["id"]], **{"in": display[apres["in"]["id"]]},
+            out=display.get(apres["out"]["id"], apres["out"]),
+            **{"in": display[apres["in"]["id"]]},
             armband=dict(b, captain=display[b["captain"]["id"]],
                          vice=display[b["vice"]["id"]]),
+            echanges=[(display.get(o["id"], o), display[i["id"]])
+                      for o, i in apres.get("echanges", [])],
             xi_in=[display[i] for i in apres["xi_in"]],
             xi_out=[display[i] for i in apres["xi_out"]])
     return {
@@ -136,7 +170,11 @@ def build_from_contract(contract, squad_ids, bank, backend=None, now=None,
         "xi": shown(central["xi"]), "bench": shown(central["bench"]),
         "armband": band,
         "apres_transfert": apres,
-        "transfer": central["transfer"], "bank": bank,
+        "transfer": dict(central["transfer"], noms={
+            p: contract.players.get(str(p), {}).get("web_name", f"#{p}")
+            for e in (central["transfer"].get("plan") or {}).values()
+            for p in e["achats"] + e["ventes"]}),
+        "bank": bank, "gratuits": gratuits,
         "horizon_eps": central["horizon_eps"], "market_size": central["market_size"],
         "missing_ids": missing, "missing_names": facts["missing_names"],
         "pick_gw": pick_gw, "already_transferred": list(already_transferred or []),

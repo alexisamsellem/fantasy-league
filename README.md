@@ -11,7 +11,7 @@ Le cadrage complet est dans `dossier-conception-agent-fpl.md`.
 # 0. Une seule fois : configuration locale (jamais commitée)
 cp config.example.json config.local.json
 $EDITOR config.local.json    # REMPLACER les deux 0 par tes vrais identifiants
-pip install duckdb           # seule dépendance optionnelle
+pip install duckdb pulp highspy   # optionnelles ; pulp + highspy = plan de transferts exact
 
 # 1. Avant chaque deadline (idéalement après les conférences de presse) :
 python3 -m unittest discover -s tests && python3 -m fpl_advisor run
@@ -19,7 +19,8 @@ python3 -m unittest discover -s tests && python3 -m fpl_advisor run
 
 Le `cp` copie un gabarit rempli de zéros : il faut l'**éditer**. Laissé tel
 quel, il est refusé avec un message explicite plutôt que de lancer une collecte
-de 404. Où trouver `team_id` et les identifiants de ligue :
+de 404. Sans `pulp` et `highspy`, l'arbitrage de transfert retombe sur le
+scan un-pour-un historique, et le rapport le dit. Où trouver `team_id` et les identifiants de ligue :
 `docs/guide-j0.md`, sections 2 et 3 — les deux se lisent dans les URLs de
 `fantasy.premierleague.com`. Prérequis : Python 3.9+, aucune dépendance
 obligatoire.
@@ -73,6 +74,23 @@ suivante), `audit-effectif` et `freeze` (sections ci-dessous).
 `--freeze-projections FICHIER` fonctionne aussi sur `advise` et `run` : il
 écrit la trace auditable des projections utilisées, sans aucune donnée
 personnelle.
+
+## Ce qui juge le moteur
+
+Chaque mesure se fait sur les projections FIGÉES avant la deadline
+(`projections-figees/`) contre les résultats FPL validés
+(`resultats-observes/`, `python3 scripts/figer_resultats.py`). Rien n'est
+recalculé après les matchs. Les verdicts sont sous `calibrations/` :
+
+| Script | Question | Rapport |
+|---|---|---|
+| `scripts/banc_points.py` | le moteur prévoit-il les points mieux que `ep_next` ? | `banc-points.md` |
+| `scripts/banc_marche.py` | les cotes du marché font-elles mieux que nos λ d'équipe ? | `banc-marche.md` |
+| `scripts/banc_distributions.py` | la distribution simulée bat-elle l'espérance et les scénarios (CRPS) ? | `banc-distributions.md` |
+| `scripts/banc_optimiseur.py` | le programme exact fait-il au moins aussi bien que le scan ? | `banc-optimiseur.md` |
+
+La recalibration de P(60+) et son contrôle sans regard vers l'avant sont
+décrits dans `docs/anomalies-constatees.md` (A10).
 
 ## Le faire tourner tout seul (GitHub Actions)
 

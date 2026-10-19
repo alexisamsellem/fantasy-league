@@ -10,6 +10,7 @@ from pathlib import Path
 
 from . import bilan, mail, rivals
 from .evaluation import quality
+from .optimization.weekly import libelle as libelle_transfert
 
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
 
@@ -280,6 +281,30 @@ def _league_lines(rec):
                 "pour toi.")
     return lines
 
+def _plan_lines(tr):
+    """Le plan du programme exact, GW par GW : ce qui est acheté, vendu, payé."""
+    plan, noms = tr.get("plan"), tr.get("noms") or {}
+    if tr.get("optimiseur") != "milp" or not plan:
+        return ([] if tr.get("optimiseur") != "scan" else
+                ["\nOptimiseur : scan un-pour-un (PuLP + HiGHS absents — "
+                 "`pip install pulp highspy` pour le plan exact)."])
+    nom = lambda p: noms.get(p, noms.get(str(p), f"#{p}"))
+    lines = ["\nOptimiseur : **programme exact** (PuLP + HiGHS) sur tout le "
+             f"marché et les {tr['horizon']} GW de l'horizon, gratuits en banque "
+             "et hits compris. Seule la première ligne est à exécuter "
+             "maintenant ; les suivantes disent ce que le plan prévoit, et "
+             "seront recalculées la semaine venue.",
+             "\n| GW | Gratuits disponibles | Ventes | Achats | Hits |",
+             "|---|---|---|---|---|"]
+    for g, e in plan.items():
+        lines.append(f"| {g} | {e['gratuits']} | "
+                     f"{', '.join(nom(p) for p in e['ventes']) or '—'} | "
+                     f"{', '.join(nom(p) for p in e['achats']) or '—'} | "
+                     f"{e['hits'] or '—'} |")
+    lines.append(f"\nGratuits en banque à la fin de l'horizon : {tr.get('gratuits_fin')}.")
+    return lines
+
+
 def _titre_lines(rec):
     """P(finir 1er), ligue par ligue, et là où elle contredit l'espérance."""
     vues = rec.get("titre")
@@ -410,9 +435,10 @@ def render(rec):
         f"- Capitaine : **{band['captain']['web_name']}** ; vice : "
         f"**{band['vice']['web_name']}**",
         f"- Transfert : **{tr['decision'].upper()}**"
-        + (f" — {tr['candidates'][0]['out']['web_name']} → "
-           f"{tr['candidates'][0]['in']['web_name']} "
-           f"(+{tr['candidates'][0]['delta3']:.1f} pts sur {tr['horizon']} GW)"
+        + (f" — {libelle_transfert(tr)} "
+           f"(+{tr['candidates'][0]['delta3']:.1f} pts sur {tr['horizon']} GW"
+           + (", imposé : un joueur détenu n'est plus projetable" if tr.get("impose") else "")
+           + ")"
            if tr["decision"] == "transférer" else
            " le transfert gratuit (aucun gain net suffisant identifié)"),
     ]
@@ -433,9 +459,13 @@ def render(rec):
         "\n## Transférer ou conserver",
         f"\nDécision : **{tr['decision'].upper()}** — seuil de bascule : "
         f"+{tr['threshold']:.1f} pts d'espérance cumulée sur {tr['horizon']} GW "
-        "[H, seuil à réestimer sur notre propre journal]. "
-        f"Banque disponible : {rec['bank'] / 10:.1f} M£.",
+        + ("(valeur d'un transfert gratuit gardé en banque) " if tr.get("optimiseur") == "milp" else "")
+        + "[H, seuil à réestimer sur notre propre journal]. "
+        f"Banque disponible : {rec['bank'] / 10:.1f} M£. Transferts gratuits : "
+        f"{rec.get('gratuits', 1)}"
+        + (f" ({rec['gratuits_source']})." if rec.get("gratuits_source") else "."),
     ]
+    lines += _plan_lines(tr)
     if tr["candidates"]:
         lines += [f"\n| Sortant | Entrant | Gain sur le XI ({tr['horizon']} GW) | "
                   "Écart individuel | Banque après |",

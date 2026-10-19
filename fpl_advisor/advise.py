@@ -27,11 +27,13 @@ def build_recommendation(parsed, now=None, freeze_to=None):
 
     contract = weekly.build_contract(parsed)
     frozen = contract.save(freeze_to) if freeze_to else None
+    gratuits, gratuits_source = weekly.free_transfers(parsed)
     rec = weekly.build_from_contract(
-        contract, squad_ids, bank, now=now,
+        contract, squad_ids, bank, now=now, gratuits=gratuits,
         already_transferred=weekly.pending_transfers(parsed, contract.gw),
         pick_gw=parsed.get("last_closed_gw"))
     rec["frozen_projections"] = str(frozen) if frozen else None
+    rec["gratuits_source"] = gratuits_source
 
     # Plusieurs mini-ligues peuvent compter à la fois : elles sont lues
     # séparément, jamais moyennées. La première reste la vue par défaut pour

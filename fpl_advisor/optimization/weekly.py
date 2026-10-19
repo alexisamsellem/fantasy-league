@@ -12,6 +12,7 @@ appel : capitaine et arbitrage de transfert changent ensemble, les mesurer
 séparément donnerait une stabilité fausse.
 """
 
+from . import milp
 from .squad import armband, pick_xi
 from .transfers import transfer_scan
 
@@ -36,8 +37,84 @@ def shortlist(rows, squad_ids, gw, per_position=MARKET_PER_POSITION):
     return out
 
 
-def weekly_decision(rows, squad_ids, bank, gws, per_position=MARKET_PER_POSITION):
+def _transfer_milp(rows, by_id, squad, squad_ids, bank, gws, free_transfers):
+    """Arbitrage par le programme exact, rendu sous la forme du scan.
+
+    Le plan optimal est comparé au meilleur plan qui n'agit PAS à la GW de
+    décision. `delta3` est leur écart sur le XI (hits déduits, banque non
+    comptée) : c'est le gain d'agir maintenant, et il se lit contre le même
+    seuil que le scan — la valeur d'un gratuit gardé en banque. Sous
+    « conserver », le meilleur échange immédiat est calculé quand même, pour
+    dire de combien il manque."""
+    gw = gws[0]
+    kw = {"free_transfers": free_transfers}
+    plan = milp.plan_transferts(rows, squad_ids, bank, gws, **kw)
+    impose = False
+    if plan["achats"][gw]:
+        try:
+            ref = milp.plan_transferts(rows, squad_ids, bank, gws,
+                                       sans_transfert_a=gw, **kw)
+        except ValueError:          # effectif illégal sans transfert
+            ref, impose = plan, True
+        montre = plan
+    else:
+        ref = plan
+        try:
+            montre = milp.plan_transferts(rows, squad_ids, bank, gws,
+                                          au_moins_un_a=gw, **kw)
+        except ValueError:
+            montre = None
+    gain = (montre["valeur"] - ref["valeur"]) if montre else 0.0
+    cands = []
+    if montre:
+        ventes = sum(by_id[o]["now_cost"] for o in montre["ventes"][gw] if o in by_id)
+        achats = sum(by_id[i]["now_cost"] for i in montre["achats"][gw])
+        for o, i in milp.echanges(montre, by_id, gw):
+            out = next((p for p in squad if p["id"] == o), None) or dict(
+                by_id.get(o, {"id": o, "web_name": f"#{o}", "element_type": 0,
+                              "now_cost": 0, "team": 0}), ep=0.0)
+            cands.append({"out": out, "in": dict(by_id[i], ep=by_id[i]["eps"][gw]),
+                          "delta3": gain, "delta3_brut": gain,
+                          "cost_after": bank + ventes - achats})
+    resume = {g: {"achats": plan["achats"][g], "ventes": plan["ventes"][g],
+                  "hits": plan["hits"][g], "gratuits": plan["ft"][g]} for g in gws}
+    return {"decision": "transférer" if plan["achats"][gw] else "conserver",
+            "threshold": milp.FT_VALUE, "candidates": cands,
+            "horizon": len(gws), "xi_based": True, "optimiseur": "milp",
+            "impose": impose,
+            "hits": (montre or plan)["hits"][gw], "gratuits": plan["ft"][gw],
+            "gratuits_fin": plan["ft_fin"], "plan": resume,
+            "valeur_plan": plan["valeur_banque"]}
+
+
+def executes(transfer):
+    """Les échanges À FAIRE. Pour le scan, `candidates` liste des
+    alternatives (seule la première est jouée) ; pour le programme exact,
+    c'est l'ensemble des échanges de la GW de décision."""
+    cands = transfer.get("candidates") or []
+    if transfer.get("decision") != "transférer":
+        return []
+    return cands if transfer.get("optimiseur") == "milp" else cands[:1]
+
+
+def libelle(transfer):
+    """« A → B + C → D (1 hit, −4) » — tous les échanges de la GW de décision."""
+    cands = executes(transfer)
+    if not cands:
+        return "aucun"
+    txt = " + ".join(f"{c['out']['web_name']} → {c['in']['web_name']}" for c in cands)
+    h = transfer.get("hits") or 0
+    return txt + (f" ({h} hit{'s' if h > 1 else ''}, −{milp.HIT * h})" if h else "")
+
+
+def weekly_decision(rows, squad_ids, bank, gws, per_position=MARKET_PER_POSITION,
+                    optimiseur=None, free_transfers=1):
     """XI, banc, brassard et arbitrage de transfert pour la GW `gws[0]`.
+
+    `optimiseur` : « milp » (programme exact, défaut quand PuLP + HiGHS sont
+    installés) ou « scan » (échange un-pour-un historique, conservé comme
+    témoin et comme repli). `free_transfers` : gratuits disponibles à la GW
+    de décision — le programme seul sait en tirer parti.
 
     `rows` : lignes du contrat sous UN scénario (`ProjectionSet.rows_for`).
     `squad_ids` : les 15 joueurs réellement détenus, dans l'ordre d'entrée.
@@ -58,7 +135,17 @@ def weekly_decision(rows, squad_ids, bank, gws, per_position=MARKET_PER_POSITION
     market = shortlist(rows, set(squad_ids), gw, per_position)
     horizon_eps = {r["id"]: {g: by_id[r["id"]]["eps"][g] for g in gws}
                    for r in squad + market}
-    transfer = transfer_scan(squad, market, horizon_eps, bank)
+    if optimiseur is None:
+        optimiseur = "milp" if milp.disponible() else "scan"
+    if optimiseur == "milp":
+        transfer = _transfer_milp(rows, by_id, squad, squad_ids, bank, gws,
+                                  free_transfers)
+        for c in transfer["candidates"]:
+            horizon_eps.setdefault(c["in"]["id"],
+                                   {g: by_id[c["in"]["id"]]["eps"][g] for g in gws})
+    else:
+        transfer = dict(transfer_scan(squad, market, horizon_eps, bank),
+                        optimiseur="scan")
 
     top = transfer["candidates"][0] if transfer["candidates"] else None
 
@@ -70,12 +157,19 @@ def weekly_decision(rows, squad_ids, bank, gws, per_position=MARKET_PER_POSITION
     # où l'échange est décidé.
     apres = None
     if top and transfer["decision"] == "transférer":
-        squad_apres = [top["in"] if p["id"] == top["out"]["id"] else p
-                       for p in squad]
+        faits = executes(transfer)
+        remplace = {c["out"]["id"]: c["in"] for c in faits}
+        squad_apres = [remplace.get(p["id"], p) for p in squad]
+        # Joueur détenu absent du contrat : sa place reprise par un achat.
+        deja = {p["id"] for p in squad_apres}
+        squad_apres += [c["in"] for c in faits
+                        if c["in"]["id"] not in deja and c["out"]["id"] not in
+                        {p["id"] for p in squad}]
         xi_a, bench_a = pick_xi(squad_apres)
         band_a = armband(xi_a)
         apres = {"squad": squad_apres, "xi": xi_a, "bench": bench_a,
                  "armband": band_a, "out": top["out"], "in": top["in"],
+                 "echanges": [(c["out"], c["in"]) for c in faits],
                  "captain_change": band_a["captain"]["id"] != band["captain"]["id"],
                  "xi_in": [p["id"] for p in xi_a
                            if p["id"] not in {x["id"] for x in xi}],
@@ -95,6 +189,8 @@ def weekly_decision(rows, squad_ids, bank, gws, per_position=MARKET_PER_POSITION
         # Le couple n'est comparable entre scénarios que s'il est RECOMMANDÉ :
         # sous « conserver », deux meilleurs candidats sous le seuil qui
         # diffèrent décrivent la même action — ne rien faire.
-        "swap": ((top["out"]["id"], top["in"]["id"])
-                 if top and transfer["decision"] == "transférer" else None),
+        "swap": (None if not executes(transfer)
+                 else (top["out"]["id"], top["in"]["id"]) if len(executes(transfer)) == 1
+                 else tuple(sorted((c["out"]["id"], c["in"]["id"])
+                                   for c in executes(transfer)))),
     }

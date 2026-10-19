@@ -71,6 +71,12 @@ jobs:
         id: plan
         run: python3 scripts/envois.py planifier ${{ inputs.forcer && '--forcer' || '' }}
 
+      # Programme exact de transferts (PuLP + solveur HiGHS). Sans eux, le
+      # conseiller retombe sur le scan un-pour-un et le rapport le dit.
+      - name: Dépendances de l'optimiseur exact
+        if: steps.plan.outputs.agir == 'true'
+        run: pip install pulp highspy
+
       - name: Tests (un moteur cassé ne conseille rien)
         if: steps.plan.outputs.agir == 'true'
         run: python3 -m unittest discover -s tests

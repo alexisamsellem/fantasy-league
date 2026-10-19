@@ -21,6 +21,8 @@ Contraintes de la messagerie, toutes assumées :
 
 from datetime import datetime, timezone
 
+from .optimization.weekly import libelle as libelle_transfert
+
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
 
 # Palette : une seule teinte d'accent par état, contrastée sur fond clair. Les
@@ -104,8 +106,7 @@ def sujet(rec, maintenant=None):
     h = _heures(rec.get("deadline"), maintenant)
     tr = rec["transfer"]
     if tr["decision"] == "transférer" and tr["candidates"]:
-        c = tr["candidates"][0]
-        quoi = f"{c['out']['web_name']} → {c['in']['web_name']}"
+        quoi = libelle_transfert(tr)
     else:
         quoi = "on garde tout"
     band = rec["armband"]["captain"]["web_name"]
@@ -125,8 +126,7 @@ def decisions(rec):
     lignes = []
     if tr["decision"] == "transférer" and tr["candidates"]:
         c = tr["candidates"][0]
-        lignes.append(("Transfert",
-                       f"{c['out']['web_name']} → {c['in']['web_name']}",
+        lignes.append(("Transfert", libelle_transfert(tr),
                        f"+{_nb(c['delta3'], 1)} pts sur {tr['horizon']} journées"))
     else:
         lignes.append(("Transfert", "aucun",
@@ -156,6 +156,10 @@ def chaine(rec):
             + (" et il est sur ton banc, donc il ne te rapporte rien"
                if sur_le_banc else "")
             + f". {entrant['web_name']} en pèse {_nb(entrant['ep'])}."))
+        if tr.get("optimiseur") == "milp" and len(tr["candidates"]) > 1:
+            out.append(("Le plan fait plus d'un échange",
+                        f"{libelle_transfert(tr)} — le programme exact juge "
+                        "l'ensemble, pas chaque échange séparément"))
         if ap and ap["xi_in"]:
             noms = ", ".join(p["web_name"] for p in ap["xi_in"])
             out.append((f"{noms} prend une place dans le onze",
