@@ -280,6 +280,75 @@ def _league_lines(rec):
                 "pour toi.")
     return lines
 
+def _titre_lines(rec):
+    """P(finir 1er), ligue par ligue, et là où elle contredit l'espérance."""
+    vues = rec.get("titre")
+    if not vues:
+        err = rec.get("titre_erreur")
+        return ([f"\n## P(finir 1er) par ligue\n\nNon calculée : {err}"]
+                if err else [])
+    lines = [
+        "\n## P(finir 1er) par ligue — le vrai objectif",
+        "\nChaque option (transfert × capitaine) est jouée sur les mêmes "
+        "tirages que les rivaux : buts de chaque match partagés par tous les "
+        "managers, rivaux figés sur leurs derniers picks publics, reste de la "
+        "saison par un modèle résiduel appris sur la ligue. ΔP est mesuré "
+        "contre « conserver + meilleur capitaine EP ». Les ligues ne sont "
+        "jamais moyennées.",
+    ]
+    for v in vues:
+        nom = v.get("name") or v.get("id")
+        if v.get("erreur"):
+            lines.append(f"\n### {nom}\n\n{v['erreur']}")
+            continue
+        mod, d = v["modele"], v["desaccord"]
+        lines += [
+            f"\n### {nom} — rang {v.get('rang', '?')}/{v['n_managers']}, "
+            f"P(1er) de référence {100 * v['p1_reference']:.1f} %",
+            f"\nReste de saison : {v['reste']} GW, bruit σ = {mod['sigma']:.1f} "
+            f"pts par GW et par manager, talent rétréci à {100 * mod['k']:.0f} % "
+            f"de l'écart observé ({mod['source']}). {v['n']} tirages."
+            + (f" Contrôle hors échantillon du bruit : écart type des résidus "
+               f"standardisés {v['controle']['sd_z']:.2f} sur {v['controle']['n']} "
+               "managers-journées (1 = bien calibré)." if v.get("controle") else ""),
+        ]
+        if not v.get("resolu", True):
+            lines.append(
+                f"\n**Résolution insuffisante** : {100 * v['p1_reference']:.2f} % de "
+                f"titres sur {v['n']} tirages, soit moins de "
+                "50 titres simulés. Les ΔP ci-dessous sont du bruit de "
+                "simulation. [Déduit] Dans cette ligue, le titre n'est pas un "
+                "objectif atteignable à cette date au regard du modèle ; le "
+                "classement par EP reste le repère.")
+        lines += ["\n| Rang P(1er) | Option | Capitaine | P(1er) | ΔP(1er) | ± (1 e.-t.) | Rang EP | ΔEP |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for r in v["options"][:8]:
+            marque = " (réf.)" if r["reference"] else ""
+            lines.append(
+                f"| {r['rang_p1']} | {r['label']}{marque} | {r['capitaine']} | "
+                f"{100 * r['p1']:.1f} % | {100 * r['dp1']:+.2f} pt | "
+                f"{100 * r['se']:.2f} | {r['rang_ep']} | {r['dep']:+.2f} |")
+        if d["meme_tete"]:
+            lines.append("\nP(1er) et EP désignent la même option en tête.")
+        else:
+            lines.append(
+                f"\n**Désaccord** : P(1er) préfère {d['tete_p1']}, l'EP préfère "
+                f"{d['tete_ep']} — écart de P(1er) {100 * d['ecart_p1_tetes']:+.2f} "
+                f"pt (erreur Monte-Carlo appariée {100 * d['se_ecart']:.2f})"
+                + (" — écart réel au regard de la simulation." if d["discernable"]
+                   else " — indiscernable du bruit de simulation : les deux "
+                        "options se valent pour le titre."))
+        if d["spearman"] is not None:
+            lines.append(f"Corrélation de rang P(1er)/EP sur les options : "
+                         f"{d['spearman']:+.2f}.")
+    lines.append(
+        "\nHypothèses [H] : rivaux sans transfert ni chip sur l'horizon ; pas de "
+        "remplacement automatique ; journée en cours comptée à ses points "
+        "provisoires. Aucun de ces classements n'a été validé sur une fin de "
+        "saison : c'est un calcul, pas une mesure.")
+    return lines
+
+
 def render(rec):
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     teams = rec["teams"]
@@ -434,6 +503,7 @@ def render(rec):
 
     # Rivaux — une section par mini-ligue, jamais de moyenne entre elles
     lines += _league_lines(rec)
+    lines += _titre_lines(rec)
 
     # Déclencheurs de révision
     lines += ["\n## Événements qui feraient changer ces décisions"]

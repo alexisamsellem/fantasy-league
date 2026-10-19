@@ -13,7 +13,7 @@ rejouable à partir du seul contrat ; tout ce qui est en dessous est du contexte
 qui ne doit influencer aucune projection.
 """
 
-from . import weekly
+from . import titre, weekly
 from .rivals import exposure_conflicts, league_views
 
 
@@ -42,4 +42,12 @@ def build_recommendation(parsed, now=None, freeze_to=None):
                 "exposure": vues[0]["exposure"] if vues else [],
                 "exposure_meta": vues[0]["meta"] if vues else {},
                 "standings": vues[0]["standings"] if vues else {}})
+
+    # Le vrai objectif : P(finir 1er), ligue par ligue. Un calcul qui échoue
+    # (contrat sans calendrier, ligue illisible) est dit, jamais maquillé.
+    try:
+        rec["titre"] = titre.depuis_snapshot(parsed, contract, squad_ids, bank)
+    except (ValueError, KeyError) as e:
+        rec["titre"] = None
+        rec["titre_erreur"] = f"{type(e).__name__} : {e}"
     return rec

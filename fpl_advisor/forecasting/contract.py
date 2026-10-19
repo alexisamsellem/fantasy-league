@@ -166,14 +166,18 @@ class ProjectionSet:
                 {(h, a): (lh, la) for h, a, lh, la in fx})
 
     def simulate(self, gw, n=simulation.N_TIRAGES, seed=simulation.GRAINE,
-                 partage=True):
+                 partage=True, ids=None):
         """Tirages joints {player_id: [points]} d'une GW : l'aléa d'équipe est
-        partagé, donc des sommes sur plusieurs joueurs restent correctes."""
+        partagé, donc des sommes sur plusieurs joueurs restent correctes.
+        `ids` restreint les joueurs simulés (les buts d'équipe, eux, sont
+        toujours tirés pour tous les matchs)."""
         fx, lam = self.fixtures_for(gw)
         if fx is None:
             raise ValueError(f"GW{gw} : contrat sans calendrier, distribution "
                              "impossible — migrer avec migrate_1_0(contrat, fixtures)")
-        return simulation.simulate_gw(self.rows, self.players, gw, fx, lam,
+        rows = self.rows if ids is None else [r for r in self.rows
+                                              if r.player_id in ids]
+        return simulation.simulate_gw(rows, self.players, gw, fx, lam,
                                         n=n, seed=seed, partage=partage)
 
     @classmethod
