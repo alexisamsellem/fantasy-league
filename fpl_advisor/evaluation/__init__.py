@@ -15,17 +15,18 @@ ré-optimiser, donc l'appelant injecte un `SelectionBackend` (voir `backend.py`)
   bench       protocole de comparaison figé et son exécution
   benchmark   points réels contre ep et ep_next, intervalle par grappes
   recalibration carte de Platt de P(60+), ajustée sans regard vers l'avant
+  marche      cotes du marché, marge retirée, contre les λ d'équipe du moteur
 """
 
 from . import (backend, baseline, bench, benchmark, calibration,  # noqa: F401
-               quality, recalibration, stability)
+               marche, quality, recalibration, stability)
 from .backend import SelectionBackend  # noqa: F401
 from .quality import (ACCEPTED, BLOCKED, WARNING, Check, Verdict,  # noqa: F401
                       assess, assess_weekly)
 from .stability import decision_stability, top15_stability  # noqa: F401
 
 __all__ = ["quality", "stability", "baseline", "bench", "benchmark", "backend",
-           "calibration", "recalibration",
+           "calibration", "recalibration", "marche",
            "SelectionBackend", "assess", "assess_weekly", "Verdict", "Check",
            "top15_stability", "decision_stability",
            "ACCEPTED", "WARNING", "BLOCKED"]

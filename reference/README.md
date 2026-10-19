@@ -28,3 +28,15 @@ mkdir -p data/reference && cp reference/team_priors.csv data/reference/
 Sans ce fichier, le moteur retombe sur les ratings `strength_*` de l'API FPL,
 dont le statut est [R] non validé, et le contrôle `couverture_donnees` le
 signale.
+
+## `cotes-E0-2026-27.csv`
+
+Cotes moyennes du marché et scores de la Premier League 2026/27, matchs joués
+au 19/10/2026 (GW1–GW6, 60 matchs).
+
+- Source : `https://www.football-data.co.uk/mmz4281/2627/E0.csv`, gratuit,
+  lu le 19/10/2026. Colonnes conservées : date, équipes, score final, cotes
+  moyennes 1X2 et ±2,5 buts avant match (`Avg*`) et à la clôture (`AvgC*`).
+- Usage : `scripts/banc_marche.py`, juge des probabilités d'équipe du moteur.
+  Le marché n'alimente PAS le moteur : sur GW2–GW6 il ne fait pas mieux
+  (`calibrations/banc-marche.md`).
