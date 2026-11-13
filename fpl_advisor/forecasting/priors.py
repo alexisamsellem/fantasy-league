@@ -14,6 +14,8 @@ Aucune n'a été ajustée sur des résultats 2026/27 — le module ne prétend p
 être calibré, il prétend être explicite.
 """
 
+import math
+
 # --------------------------------------------------------- contrat de données ----
 
 # Ce que la couche de projection consomme, où le prendre, et ce qui casse sans.
@@ -201,6 +203,22 @@ PLAY_RATE_PRIOR = {1: 0.38, 2: 0.55, 3: 0.58, 4: 0.58}
 # À re-mesurer quand la saison aura accumulé plus de journées.
 P60_GIVEN_START = 0.954
 
+# MESURÉ. Recalibration logistique des probabilités de minutes :
+#     p_corrigée = sigmoïde(a · logit(p_brute) + b)
+# appliquée UNIQUEMENT aux joueurs au statut officiel « disponible » (status "a").
+# Constat (A10) : sur GW2-GW10 cumulées, 5043 paires, le moteur était trop
+# prudent en haut de l'échelle — tranche P(60+) 60-80 % : annoncé 70 %,
+# observé 81 % (IC95 bootstrap par joueur +7,9 à +13,8 points), 9 GW sur 9.
+# Paramètres ajustés par régression logistique sur les joueurs disponibles de
+# GW2-GW10 (GW2-GW3 rejouées sous P60_GIVEN_START = 0.954, rejeu exact, cf. A9).
+# Validés en laissant une GW de côté à la fois : Brier P(60+) et P(jouer)
+# meilleurs sur 9 GW sur 9, erreur quadratique sur les points meilleure sur
+# 8 GW sur 9. Les joueurs incertains (statut « d ») sont exclus : la même
+# correction dégradait leur Brier (0.154 → 0.167).
+# Régression : tests/test_recalibration_minutes.py. À réajuster sur la
+# saison entière, jamais sur une journée.
+MINUTES_RECALIBRATION = {"p60": (1.2954, 0.3331), "p_play": (1.6175, 0.0757)}
+
 XG90_PRIOR = {1: 0.00, 2: 0.05, 3: 0.15, 4: 0.30}
 XA90_PRIOR = {1: 0.00, 2: 0.07, 3: 0.14, 4: 0.11}
 BONUS90_PRIOR = {1: 0.12, 2: 0.14, 3: 0.15, 4: 0.20}
@@ -241,6 +259,19 @@ OPP_FACTOR_CLAMP = (0.65, 1.55)
 
 
 # ------------------------------------------------------------------ shrinkage ----
+
+def recalibrate(p, key):
+    """sigmoïde(a · logit(p) + b) avec les paramètres mesurés de `key`.
+
+    Monotone : ne change jamais l'ordre des joueurs sur la probabilité.
+    0 reste 0 (un indisponible reste indisponible) ; ne renvoie jamais 1."""
+    if p <= 0.0:
+        return 0.0
+    a, b = MINUTES_RECALIBRATION[key]
+    p = min(max(p, 1e-4), 1 - 1e-4)
+    z = a * math.log(p / (1 - p)) + b
+    return 1.0 / (1.0 + math.exp(-z))
+
 
 def shrink(successes, trials, prior_rate, strength):
     """Taux binaire rétréci (Beta-Binomial en forme de pseudo-comptages).

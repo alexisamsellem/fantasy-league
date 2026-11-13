@@ -28,7 +28,7 @@ from .projection import project_horizon, project_player
 from .teams import team_factors
 
 CONTRACT_VERSION = "1.0"
-MODEL_VERSION = "forecasting/0.3.1"
+MODEL_VERSION = "forecasting/0.4.0"
 
 # Minutes forcées servant à isoler le risque de titularisation (colonne
 # « EP si 90' » du rapport) : ce n'est pas une prévision, c'est un contrefactuel.
@@ -238,6 +238,15 @@ def build_projection_set(parsed, gws, as_of=None):
                             "rates": central.get("rate_basis", ""),
                             "defcon": central.get("defcon_basis", ""),
                             "team": factors.get(p["team"], {}).get("source", ""),
+                            # Valeurs AVANT la recalibration A10, et la
+                            # disponibilité officielle : sans elles, un
+                            # réajustement futur ajusterait du corrigé sur du
+                            # corrigé, et ne saurait pas qui était exclu.
+                            "minutes_brut": {
+                                "p60": minutes["p60_brut"],
+                                "p_play": minutes["p_play_brut"],
+                                "avail": minutes["avail"],
+                                "recalibre": minutes["recalibre"]},
                             # Fait observé, pas estimation : combien de GW
                             # regardées, combien démarrées, combien jouées.
                             "minutes_observed": {

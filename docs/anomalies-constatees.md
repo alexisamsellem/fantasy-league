@@ -366,3 +366,80 @@ corrigé** : aucune mesure directe de cette constante n'existe, et son effet
 est confondu avec la faible taille de l'historique — la modifier maintenant
 reviendrait à l'ajuster sur deux journées. À reprendre vers la GW6, quand
 l'historique observé pèsera plus que le prior.
+
+## A10 — Les probabilités de minutes étaient trop prudentes sur les disponibles — CORRIGÉ
+
+**Constaté le** 13/11/2026, sur les neuf points de calibration GW2-GW10.
+**Sévérité** : moyenne — sous-cotait l'espérance des titulaires probables
+d'environ 0,4 point par GW, sans changer leur classement.
+
+**Le défaut, cumulé et prouvé.** 5043 paires (joueur, GW), GW2-GW3 rejouées
+sous `P60_GIVEN_START = 0.954` (rejeu exact, voir A9). Intervalles à 95 % par
+bootstrap sur les joueurs : un joueur revient chaque semaine, les paires ne
+sont pas indépendantes.
+
+| Tranche P(60+) | n | Annoncé | Observé | Écart (IC95) | GW où observé > annoncé |
+|---|---|---|---|---|---|
+| 40 – 60 % | 663 | 50,2 % | 60,5 % | +10,3 (+6,3 ; +14,7) | 8/9 |
+| 60 – 80 % | 803 | 70,0 % | 80,8 % | +10,8 (+7,9 ; +13,8) | 9/9 |
+| 80 – 100 % | 544 | 87,2 % | 92,3 % | +5,0 (+2,4 ; +7,3) | 8/9 |
+
+P(jouer) montre le même étirement manquant : trop haut en bas de l'échelle
+(20-40 % : −6,6 points), trop bas en haut (60-80 % : +10,4 ; 80-100 % : +7,0).
+Les probabilités étaient écrasées vers le milieu.
+
+**Correction.** `p = sigmoïde(a · logit(p_brute) + b)`, appliquée aux seuls
+joueurs au statut officiel « disponible ». Paramètres (`priors.MINUTES_RECALIBRATION`)
+ajustés par régression logistique sur GW2-GW10 : P(60+) a = 1,295, b = +0,333 ;
+P(jouer) a = 1,618, b = +0,076. La transformation est monotone : l'ordre des
+joueurs disponibles sur la probabilité ne bouge pas (un disponible peut en
+revanche passer devant un incertain non corrigé). Les valeurs brutes, la
+disponibilité et le fait d'avoir été corrigé sont figés dans le contrat
+(`provenance.minutes_brut`) : un réajustement futur pourra repartir du brut.
+
+**Validation hors échantillon** (chaque GW corrigée par des paramètres appris
+sans elle) :
+
+| Mesure | Avant | Après | GW améliorées |
+|---|---|---|---|
+| Brier P(60+) | 0,1128 | 0,1088 | 9/9 |
+| Brier P(jouer) | 0,1219 | 0,1151 | 9/9 |
+| Erreur quadratique moyenne sur les points (RMSE) | 2,221 | 2,206 | 8/9 |
+| Corrélation de rang points (Spearman) | 0,693 | 0,695 | — |
+
+Tranche 60-80 % corrigée : 71 % annoncé, 70 % observé. Même résultat sur
+GW4-GW10 seules (moteur jamais rejoué) : Brier 7/7, RMSE 6/7.
+
+**Pourquoi seuls les disponibles.** Sur les 189 paires de joueurs incertains
+(statut « d »), la même correction dégradait le Brier (0,154 → 0,167).
+
+**Piège de mesure évité.** L'erreur absolue moyenne sur les points se
+DÉGRADE avec la correction (1,334 → 1,353). Ce n'est pas un signal :
+l'erreur absolue récompense la médiane (1 à 2 points), pas la moyenne (1,6 à
+3,7). `ep` est une espérance, son juge est l'erreur quadratique.
+
+**Ce que cette correction ne règle pas.** Elle ne change presque pas le
+classement des joueurs, donc presque pas les décisions (capitaine, XI). Son
+apport : des probabilités honnêtes pour tout calcul de risque, et une
+espérance juste sur les titulaires. La cause en amont (rétrécissement des
+minutes, `MINUTES_PRIOR_MATCHES`) reste non mesurée : la corriger exigerait
+de reconstruire les snapshots, que le dépôt ne conserve pas.
+
+**Limites relevées en revue adversariale (non bloquantes).**
+- Les paramètres de P(jouer) dérivent : GW2-GW3 seules donnent a = 2,19,
+  GW4-GW10 seules a = 1,53. Ceux de P(60+) sont stables (a entre 1,26 et 1,40
+  par GW, sauf GW8 à 1,03). Validation plus stricte — n'apprendre que sur
+  les GW passées — : Brier P(60+) meilleur 7/7, P(jouer) 6/7, points 6/7.
+- Les seuils en aval (alerte capitaine `CAPTAIN_P60_WARN`, alertes
+  P(jouer) < 0,9 du rapport et du mail) sont exprimés sur l'échelle
+  corrigée et se déclenchent donc moins souvent. Non réévalués.
+
+**Traçabilité.** A9 n'avait pas incrémenté `MODEL_VERSION` : GW2-GW3 (avant
+A9) et GW4-GW10 (après) portent la même étiquette `forecasting/0.3.1` pour
+deux moteurs différents. Cette correction passe à `forecasting/0.4.0`.
+
+**Régression** : `tests/test_recalibration_minutes.py`, sur les fichiers figés
+et `tests/fixtures/resultats-GW2-GW10.csv.gz` (minutes et points publics, aucune
+donnée personnelle). Il vérifie que le défaut existait, que les constantes
+livrées sont celles des données, et que la correction gagne hors échantillon
+chaque semaine sur les probabilités et au total sur les points.

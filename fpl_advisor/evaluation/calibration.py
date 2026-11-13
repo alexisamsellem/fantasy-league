@@ -23,6 +23,8 @@ Ce module ne lit que le contrat de projections et des minutes observées. Il ne
 prévoit rien, ne choisit personne, et n'importe pas l'optimiseur.
 """
 
+import math
+
 BUCKETS = ((0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0))
 MIN_PAIRS = 50          # en dessous, on refuse de conclure quoi que ce soit
 
@@ -40,6 +42,42 @@ def brier(pairs):
     if not pairs:
         return None
     return sum((p - y) ** 2 for p, y in pairs) / len(pairs)
+
+
+def fit_recalibration(pairs, iterations=50):
+    """Régression logistique sur logit(p) : (a, b) tels que
+    sigmoïde(a · logit(p) + b) colle au mieux aux résultats observés.
+
+    Sert à MESURER la recalibration des minutes (A10), jamais à l'appliquer :
+    les paramètres retenus vivent dans `forecasting.priors`. Les p = 0
+    (indisponibles officiels) sont ignorés : la correction ne les touche pas."""
+    xs = [(math.log(min(max(p, 1e-4), 1 - 1e-4) / (1 - min(max(p, 1e-4), 1 - 1e-4))), y)
+          for p, y in pairs if p > 0]
+    if len(xs) < 2 or len({y for _, y in xs}) < 2 or len({x for x, _ in xs}) < 2:
+        raise ValueError("ajustement impossible : il faut au moins deux "
+                         "probabilités distinctes et deux résultats distincts")
+    a, b = 1.0, 0.0
+    for _ in range(iterations):
+        ga = gb = haa = hab = hbb = 0.0
+        for x, y in xs:
+            q = 1.0 / (1.0 + math.exp(-(a * x + b)))
+            w, e = q * (1 - q), q - y
+            ga += e * x
+            gb += e
+            haa += w * x * x
+            hab += w * x
+            hbb += w
+        det = haa * hbb - hab * hab
+        if det <= 1e-12:
+            raise ValueError("ajustement dégénéré (données séparables ?)")
+        da, db = (hbb * ga - hab * gb) / det, (haa * gb - hab * ga) / det
+        a, b = a - da, b - db
+        if abs(da) + abs(db) < 1e-10:
+            break
+    else:
+        raise ValueError("ajustement non convergé : données séparables ou "
+                         "échantillon trop petit")
+    return a, b
 
 
 def reliability(pairs, buckets=BUCKETS):
