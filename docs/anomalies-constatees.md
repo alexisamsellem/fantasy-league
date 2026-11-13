@@ -443,3 +443,79 @@ et `tests/fixtures/resultats-GW2-GW10.csv.gz` (minutes et points publics, aucune
 donnée personnelle). Il vérifie que le défaut existait, que les constantes
 livrées sont celles des données, et que la correction gagne hors échantillon
 chaque semaine sur les probabilités et au total sur les points.
+
+## A11 — La conduite de ligue était fixée à la main et contredite par la simulation — CORRIGÉ
+
+**Constaté le** 13/11/2026, par simulation de la fin de saison.
+**Sévérité** : moyenne — la lecture de position conseillait de parier à
+partir de 15 pts de retard, quel que soit le nombre de journées restantes.
+
+**Méthode.** Monte Carlo GW11-GW38, 10 000 tirages, deux mini-ligues réelles
+(24 managers ; identifiants et noms hors dépôt). Pour chaque GW simulée, une
+GW passée (1 à 10) est tirée, commune à tous, et l'effectif GW10 de chacun est
+noté sur ses points réels, remplacements automatiques compris : les joueurs
+partagés créent la corrélation entre managers. S'y ajoutent :
+- un talent par manager : moyenne GW1-10 hors chips, rétrécie de 49 % vers le
+  groupe (part du bruit mesurée sur les écarts entre managers) ;
+- un bruit propre de 4,2 pts/GW, calibré sur la variance observée des écarts
+  entre paires ;
+- les chips restants, jeu 1 avant la GW19, jeu 2 ensuite (règles officielles
+  2026/27) ; triple capitaine et banc renforcé notés sur les points réels,
+  wildcard et free hit supposés valoir 6 et 5 pts.
+
+Contrôle : écart-type par GW des écarts au groupe, 12,3 simulé contre 12,9
+observé.
+
+**Résultat (ligue où l'on est 2ᵉ à 17 pts, 28 GW restantes).** P(finir 1er) :
+maximiser l'espérance 27 %, copier le leader 28 %, paris modérés 26 %,
+capitaine différentiel 12 %. Parier ne rapporte rien ; l'ancienne règle
+disait de parier.
+
+**Grille simulée** (meilleure conduite, P(1er)) — E maximiser, C couvrir,
+P paris modérés (+10 pts d'écart-type par GW, coût 0,5 pt/GW) :
+
+| GW restantes | −60 | −40 | −25 | −17 | −10 | −5 | 0 | +5 | +25 |
+|---|---|---|---|---|---|---|---|---|---|
+| 28 | P 13 % | E 18 % | E 24 % | C 28 % | C 35 % | C 40 % | C 44 % | C 49 % | C 67 % |
+| 18 | P 10 % | P 15 % | P 21 % | E 24 % | E 28 % | E 31 % | E 34 % | C 38 % | C 61 % |
+| 10 | P 6 % | P 12 % | P 19 % | P 23 % | P 27 % | E 30 % | C 34 % | C 41 % | C 67 % |
+| 5 | P 3 % | P 9 % | P 16 % | P 21 % | P 26 % | E 31 % | E 36 % | C 43 % | C 72 % |
+
+Les écarts entre E, C et P sont souvent de 1 à 3 points, de l'ordre du bruit
+de simulation : la règle retient ce qui est robuste. Revue adversariale
+comprise (5 tirages × 4000 par case) :
+
+- **Couvrir** avec au moins 5 pts d'avance. À égalité, couvrir et maximiser
+  se valent (18 GW : 32,8 % contre 33,6 %) : on maximise.
+- **Copier le leader en retard** : à 24-28 GW restantes, copier égale ou bat
+  maximiser (−10 pts : 34,9 % contre 30,8 %). C'est dû à l'avance de chips de
+  CE manager sur le leader, donc propre à sa situation. La règle ne le
+  déconseille donc pas à ce stade. Dès 18 GW restantes, copier coûte cher
+  (15 % contre 24 % à 17 pts) : la règle le déconseille.
+- **Parier** au-delà de 45 pts de retard (≥ 24 GW restantes), 20 pts (12 à
+  23) et 8 pts (moins de 12). **[H]** : ces seuils valent pour des paris à
+  +10 pts d'écart-type par GW et 0,5 pt/GW de coût. Avec 1 pt/GW de coût, à
+  18 GW et −25 pts, parier perd 2,8 points de P(1er). Avec 6 pts d'écart-type,
+  parier ne paie nulle part sur la grille.
+- **Jamais de capitaine différentiel** : −16 points de P(1er).
+
+**Arbitrage entre ligues.** Une équipe pour deux ligues. Mesuré à 28 GW
+restantes seulement : parier pour la ligue lointaine (91 pts) fait passer
+P(1er) de 1,3 % à 2,0 % là-bas, et de 27,4 % à 26,3 % dans la ligue proche.
+La conduite sans pari l'emporte. Plus tard, le rapport s'inverse : à 10 GW,
+parier coûte 0,8 point à −5 et rapporte 2,0 à −25. En deçà de 24 GW
+restantes, et pour couvrir contre maximiser, l'arbitrage n'est pas mesuré :
+le rapport et le mail le disent et laissent choisir.
+
+**Sensibilité.** P(1er) dans la ligue proche va de 15 % (talents supposés
+égaux) à 37 % (talents non rétrécis). Le classement des conduites tient,
+sauf E contre C qui s'inversent selon l'hypothèse de talent. Les deux
+leviers dominants sont, d'une part, l'espérance (+1 pt/GW fait passer de
+28 % à 42 %) et, d'autre part, l'avance de chips (sans elle, 22 %).
+
+**Limites.** Effectifs figés à la GW10, timing des chips aléatoire, wildcard
+et free hit supposés. Le script de simulation lit des données personnelles :
+il reste hors dépôt.
+
+**Régression** : `tests/test_ligues.py::ConduiteMesureeTests` et
+`ArbitrageTests` figent la règle sur les cases de la grille.

@@ -244,6 +244,10 @@ def _league_lines(rec):
     for v in vues:
         lines += _une_ligue_lines(v)
 
+    arb = rivals.phrase_arbitrage(vues)
+    if arb:
+        lines.append(f"\n**{arb}**")
+
     conflits = rec.get("exposure_conflicts") or []
     if len(vues) > 1:
         lines.append("\n### Là où les ligues ne disent pas la même chose")
