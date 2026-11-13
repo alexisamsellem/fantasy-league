@@ -417,11 +417,13 @@ class P60SiTitulaireTests(unittest.TestCase):
         joueur = {"id": 1, "element_type": 3, "status": "a",
                   "chance_of_playing_next_round": None}
         historique = [{"minutes": 90, "started": True}] * 6
-        base = minutes.minutes_model(joueur, historique)["p60"]
+        # Depuis A10, la proportionnalité vaut pour la valeur BRUTE, avant la
+        # recalibration logistique (qui est monotone, donc rejouable aussi).
+        base = minutes.minutes_model(joueur, historique)["p60_brut"]
         ancienne = self.priors.P60_GIVEN_START
         try:
             self.priors.P60_GIVEN_START = ancienne / 2
-            moitie = minutes.minutes_model(joueur, historique)["p60"]
+            moitie = minutes.minutes_model(joueur, historique)["p60_brut"]
         finally:
             self.priors.P60_GIVEN_START = ancienne
         self.assertAlmostEqual(moitie, base / 2, places=9)

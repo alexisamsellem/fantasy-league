@@ -28,7 +28,7 @@ from .projection import project_horizon, project_player
 from .teams import team_factors
 
 CONTRACT_VERSION = "1.0"
-MODEL_VERSION = "forecasting/0.3.1"
+MODEL_VERSION = "forecasting/0.4.0"
 
 # Minutes forcées servant à isoler le risque de titularisation (colonne
 # « EP si 90' » du rapport) : ce n'est pas une prévision, c'est un contrefactuel.

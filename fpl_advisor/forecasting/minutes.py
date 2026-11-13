@@ -153,11 +153,20 @@ def minutes_model(player, history, elements=None, parsed=None, scenario=None):
 
     r_play = max(r_play, r_start)
     tilt = scenario["minutes_tilt"]
-    p60 = min(avail, avail * r_start * priors.P60_GIVEN_START * tilt)
-    p_play = min(avail, max(avail * r_play * tilt, p60))
+    p60_brut = min(avail, avail * r_start * priors.P60_GIVEN_START * tilt)
+    p_play_brut = min(avail, max(avail * r_play * tilt, p60_brut))
+    if avail >= 1.0:
+        # Recalibration mesurée (A10) : le moteur brut est trop prudent sur les
+        # joueurs disponibles. Monotone, donc l'ordre des joueurs ne bouge pas.
+        # Les incertains gardent la valeur brute : la correction les dégradait.
+        p60 = priors.recalibrate(p60_brut, "p60")
+        p_play = max(priors.recalibrate(p_play_brut, "p_play"), p60)
+    else:
+        p60, p_play = p60_brut, p_play_brut
     p_cameo = max(0.0, p_play - p60)
     xmin = 90 * p60 + CAMEO_MINUTES * p_cameo
     return {"p_play": p_play, "p60": p60, "p_cameo": p_cameo,
+            "p60_brut": p60_brut, "p_play_brut": p_play_brut,
             "p0": 1 - p_play, "xmin": xmin, "basis": basis, "avail": avail,
             "confidence": confidence, "n_gw": n_gw,
             "n_starts_obs": n_starts_obs, "n_apps_obs": n_apps_obs}
