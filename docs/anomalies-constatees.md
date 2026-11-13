@@ -519,3 +519,46 @@ il reste hors dépôt.
 
 **Régression** : `tests/test_ligues.py::ConduiteMesureeTests` et
 `ArbitrageTests` figent la règle sur les cases de la grille.
+
+## A12 — Les chips n'étaient pas suivis — CORRIGÉ
+
+**Constaté le** 13/11/2026. Le README le disait : « pas d'optimisation de
+chips ». Or un manager suivi n'avait joué aucun de ses 4 chips de première
+moitié, qui expirent à la GW19. Dans la simulation A11, cette avance de chips
+valait 6 points de P(finir 1er).
+**Sévérité** : haute pour l'usage — un chip non joué avant sa fin de fenêtre
+est perdu.
+
+**Ce qui a été mesuré avant de rien écrire** (backtest : 24 managers réels,
+effectif de la GW précédente, projections figées GW2-GW10, 216 paires ;
+données personnelles hors dépôt) :
+
+| Chip | Signal du moteur | Corrélation EP → points |
+|---|---|---|
+| Banc renforcé | EP du banc (4 remplaçants choisis par le moteur) | 0,59 (pente 1,32) |
+| Triple capitaine | EP du capitaine | 0,03 (pente 0,23) |
+
+- **Banc renforcé** : la règle « jouer quand l'EP du banc de la GW est au
+  moins celle des deux suivantes » rapporte 9,8 pts contre 8,1 pour une
+  semaine au hasard (+1,8 ; IC90 −0,1 ; +4,0). Signal faible mais réel.
+- **Triple capitaine** : aucun signal. Sur données publiques, parmi les 57
+  candidats capitaines à EP ≥ 4,5, le Spearman EP → points vaut 0,00. Le
+  meilleur EP de chaque GW (5,4 à 7,0) a rapporté de 1 à 23 pts sans lien.
+  Seul un double match change l'espérance, mécaniquement.
+- **Wildcard, free hit** : rien de mesurable ici. Le plafond de gain d'un
+  wildcard est déjà chiffré par l'audit d'effectif (`retard`).
+
+**Correction.** `fpl_advisor/chips.py`, section « Chips » du rapport
+hebdomadaire :
+1. fenêtres lues dans `bootstrap-static → chips` (jamais inventées) et chips
+   joués lus dans l'historique du manager ;
+2. contrainte « un chip par GW » : marge = GW restantes − chips restants ; à
+   zéro, un chip doit partir ;
+3. consignes : banc renforcé sur l'EP du banc ; triple capitaine « libre »
+   sauf double match ; une seule consigne « jouer » par GW (double match,
+   puis banc, puis contrainte).
+
+**Régression** : `tests/test_chips.py`. Il fige les fenêtres, la marge et
+l'urgence, les consignes, et la prémisse publique du triple capitaine : si un
+futur moteur classe enfin les capitaines, le test échoue et la règle doit être
+revue.

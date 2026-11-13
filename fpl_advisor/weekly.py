@@ -53,6 +53,15 @@ def read_squad(parsed):
     return ids, bank
 
 
+def read_chips(parsed):
+    """(fenêtres officielles des chips, chips déjà joués) — lus dans le
+    snapshot, comme l'effectif. Listes vides si absents : le module chips le
+    dira plutôt que d'inventer des fenêtres."""
+    officiels = (parsed.get("bootstrap") or {}).get("chips") or []
+    joues = ((parsed.get("my") or {}).get("history") or {}).get("chips") or []
+    return officiels, joues
+
+
 def pending_transfers(parsed, gw):
     """Transferts déjà effectués pour la GW à venir, d'après `entry/transfers`.
 

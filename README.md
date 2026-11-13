@@ -317,7 +317,7 @@ cookie, aucune écriture côté FPL.
 ## Limites assumées de la V0
 
 Pas de cotes de bookmakers, pas de corrélations entre joueurs, pas de
-simulation de duel de mini-ligue, pas d'optimisation de chips, pas de hits ;
+simulation de duel de mini-ligue, pas de hits ; chips : vérification du timing seulement (A12) ;
 prix de vente approximé par le prix courant et stock de transferts gratuits
 supposé égal à 1 (non exposés publiquement). En début de saison, les
 historiques sont courts et les priors grossiers : le premier juge du système
