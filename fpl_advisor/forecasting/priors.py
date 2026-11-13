@@ -205,7 +205,7 @@ P60_GIVEN_START = 0.954
 
 # MESURÉ. Recalibration logistique des probabilités de minutes :
 #     p_corrigée = sigmoïde(a · logit(p_brute) + b)
-# appliquée UNIQUEMENT aux joueurs au statut officiel « disponible » (avail = 1).
+# appliquée UNIQUEMENT aux joueurs au statut officiel « disponible » (status "a").
 # Constat (A10) : sur GW2-GW10 cumulées, 5043 paires, le moteur était trop
 # prudent en haut de l'échelle — tranche P(60+) 60-80 % : annoncé 70 %,
 # observé 81 % (IC95 bootstrap par joueur +7,9 à +13,8 points), 9 GW sur 9.

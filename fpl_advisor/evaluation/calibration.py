@@ -53,6 +53,9 @@ def fit_recalibration(pairs, iterations=50):
     (indisponibles officiels) sont ignorés : la correction ne les touche pas."""
     xs = [(math.log(min(max(p, 1e-4), 1 - 1e-4) / (1 - min(max(p, 1e-4), 1 - 1e-4))), y)
           for p, y in pairs if p > 0]
+    if len(xs) < 2 or len({y for _, y in xs}) < 2 or len({x for x, _ in xs}) < 2:
+        raise ValueError("ajustement impossible : il faut au moins deux "
+                         "probabilités distinctes et deux résultats distincts")
     a, b = 1.0, 0.0
     for _ in range(iterations):
         ga = gb = haa = hab = hbb = 0.0
@@ -65,10 +68,15 @@ def fit_recalibration(pairs, iterations=50):
             hab += w * x
             hbb += w
         det = haa * hbb - hab * hab
+        if det <= 1e-12:
+            raise ValueError("ajustement dégénéré (données séparables ?)")
         da, db = (hbb * ga - hab * gb) / det, (haa * gb - hab * ga) / det
         a, b = a - da, b - db
         if abs(da) + abs(db) < 1e-10:
             break
+    else:
+        raise ValueError("ajustement non convergé : données séparables ou "
+                         "échantillon trop petit")
     return a, b
 
 

@@ -85,6 +85,9 @@ def _jeu():
             mins, pts = obs[(gw, r["player_id"])]
             out.append({"gw": gw, "pos": p["element_type"], "dispo": p["status"] == "a",
                         "p60": p60, "pp": pp, "c": c, "ep": sum(c.values()),
+                        "ep_fige": r["ep"], "rejoue": gw in REJEU,
+                        "p60_fige": r["p60"], "pp_fige": r["p_play"],
+                        "c_fige": dict(r["components"]),
                         "y60": 1.0 if mins >= 60 else 0.0, "y1": 1.0 if mins >= 1 else 0.0,
                         "pts": pts})
     _jeu.cache = out
@@ -164,9 +167,17 @@ class ConstantesLivreesTests(unittest.TestCase):
 class HorsEchantillonTests(unittest.TestCase):
 
     def test_le_recalcul_des_points_redonne_l_ep_fige(self):
-        for r in _jeu()[:500]:
-            ep = sum(_composantes(r["c"], r["pos"], r["p60"], r["pp"], r["p60"], r["pp"]).values())
-            self.assertAlmostEqual(ep, r["ep"], places=9)
+        """Le recalcul part des composantes figées et doit redonner le champ
+        `ep` écrit par le moteur dans le fichier — pas une somme recalculée."""
+        n = 0
+        for r in _jeu():
+            if r["rejoue"]:
+                continue
+            ep = sum(_composantes(r["c_fige"], r["pos"], r["p60_fige"], r["pp_fige"],
+                                  r["p60_fige"], r["pp_fige"]).values())
+            self.assertAlmostEqual(ep, r["ep_fige"], places=9)
+            n += 1
+        self.assertGreater(n, 3000)
 
     def test_brier_meilleur_chaque_semaine(self):
         rows = _hors_echantillon()
@@ -212,6 +223,35 @@ class MoteurTests(unittest.TestCase):
     def test_le_moteur_laisse_les_incertains_bruts(self):
         m = minutes.minutes_model(self._joueur("d", 75), [{"minutes": 90, "started": True}] * 4)
         self.assertEqual((m["p60"], m["p_play"]), (m["p60_brut"], m["p_play_brut"]))
+
+    def test_un_incertain_a_100_pct_n_est_pas_corrige(self):
+        # La correction n'a été mesurée que sur le statut « a ».
+        m = minutes.minutes_model(self._joueur("d", 100), [{"minutes": 90, "started": True}] * 4)
+        self.assertFalse(m["recalibre"])
+        self.assertEqual((m["p60"], m["p_play"]), (m["p60_brut"], m["p_play_brut"]))
+
+    def test_le_contrat_fige_porte_les_valeurs_brutes(self):
+        from fpl_advisor import weekly
+        from fpl_advisor.demo import build_parsed
+        c = weekly.build_contract(build_parsed())
+        vus = set()
+        for r in c.rows:
+            b = r.provenance["minutes_brut"]
+            self.assertEqual(set(b), {"p60", "p_play", "avail", "recalibre"})
+            if b["recalibre"]:
+                self.assertAlmostEqual(r.p60, priors.recalibrate(b["p60"], "p60"), places=12)
+            else:
+                self.assertEqual(r.p60, b["p60"])
+            vus.add(b["recalibre"])
+        self.assertEqual(vus, {True, False})
+
+    def test_l_ajustement_refuse_les_donnees_degenerees(self):
+        with self.assertRaises(ValueError):
+            calibration.fit_recalibration([])
+        with self.assertRaises(ValueError):
+            calibration.fit_recalibration([(0.5, 1.0), (0.7, 1.0)])
+        with self.assertRaises(ValueError):    # séparables : divergerait
+            calibration.fit_recalibration([(0.2, 0.0), (0.3, 0.0), (0.7, 1.0), (0.8, 1.0)])
 
     def test_un_indisponible_reste_a_zero(self):
         m = minutes.minutes_model(self._joueur("i", 0), [{"minutes": 90, "started": True}] * 4)

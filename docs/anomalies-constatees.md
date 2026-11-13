@@ -392,8 +392,10 @@ Les probabilités étaient écrasées vers le milieu.
 joueurs au statut officiel « disponible ». Paramètres (`priors.MINUTES_RECALIBRATION`)
 ajustés par régression logistique sur GW2-GW10 : P(60+) a = 1,295, b = +0,333 ;
 P(jouer) a = 1,618, b = +0,076. La transformation est monotone : l'ordre des
-joueurs sur la probabilité ne bouge pas. Les valeurs brutes restent exposées
-(`p60_brut`, `p_play_brut`).
+joueurs disponibles sur la probabilité ne bouge pas (un disponible peut en
+revanche passer devant un incertain non corrigé). Les valeurs brutes, la
+disponibilité et le fait d'avoir été corrigé sont figés dans le contrat
+(`provenance.minutes_brut`) : un réajustement futur pourra repartir du brut.
 
 **Validation hors échantillon** (chaque GW corrigée par des paramètres appris
 sans elle) :
@@ -422,6 +424,15 @@ apport : des probabilités honnêtes pour tout calcul de risque, et une
 espérance juste sur les titulaires. La cause en amont (rétrécissement des
 minutes, `MINUTES_PRIOR_MATCHES`) reste non mesurée : la corriger exigerait
 de reconstruire les snapshots, que le dépôt ne conserve pas.
+
+**Limites relevées en revue adversariale (non bloquantes).**
+- Les paramètres de P(jouer) dérivent : GW2-GW3 seules donnent a = 2,19,
+  GW4-GW10 seules a = 1,53. Ceux de P(60+) sont stables (a entre 1,26 et 1,40
+  par GW, sauf GW8 à 1,03). Validation plus stricte — n'apprendre que sur
+  les GW passées — : Brier P(60+) meilleur 7/7, P(jouer) 6/7, points 6/7.
+- Les seuils en aval (alerte capitaine `CAPTAIN_P60_WARN`, alertes
+  P(jouer) < 0,9 du rapport et du mail) sont exprimés sur l'échelle
+  corrigée et se déclenchent donc moins souvent. Non réévalués.
 
 **Traçabilité.** A9 n'avait pas incrémenté `MODEL_VERSION` : GW2-GW3 (avant
 A9) et GW4-GW10 (après) portent la même étiquette `forecasting/0.3.1` pour

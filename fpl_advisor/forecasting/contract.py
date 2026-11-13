@@ -238,6 +238,15 @@ def build_projection_set(parsed, gws, as_of=None):
                             "rates": central.get("rate_basis", ""),
                             "defcon": central.get("defcon_basis", ""),
                             "team": factors.get(p["team"], {}).get("source", ""),
+                            # Valeurs AVANT la recalibration A10, et la
+                            # disponibilité officielle : sans elles, un
+                            # réajustement futur ajusterait du corrigé sur du
+                            # corrigé, et ne saurait pas qui était exclu.
+                            "minutes_brut": {
+                                "p60": minutes["p60_brut"],
+                                "p_play": minutes["p_play_brut"],
+                                "avail": minutes["avail"],
+                                "recalibre": minutes["recalibre"]},
                             # Fait observé, pas estimation : combien de GW
                             # regardées, combien démarrées, combien jouées.
                             "minutes_observed": {
