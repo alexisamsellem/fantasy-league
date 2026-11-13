@@ -198,6 +198,30 @@ def _apres_transfert_lines(ap, teams):
     return lines
 
 
+def _chips_lines(ch):
+    """Section chips (A12) : consigne par chip et contrainte de fenêtre."""
+    if not ch or ch.get("etat") == "inconnu":
+        return ["\n## Chips", "\nÉtat des chips inconnu : "
+                + ((ch or {}).get("raison") or "non collecté") + "."]
+    if ch["etat"] == "aucun":
+        return ["\n## Chips", "\nAucun chip disponible sur la fenêtre en cours."]
+    lines = ["\n## Chips",
+             f"\n{len([c for c in ch['chips'] if c['fin'] == ch['fin']])} chip(s) "
+             f"à jouer d'ici la GW{ch['fin']} ({ch['restantes']} GW restantes, "
+             f"un seul par GW) : marge de **{ch['marge']} semaine(s)**."
+             + (" **Plus de marge : un chip doit partir cette GW.**" if ch["urgent"] else ""),
+             "\n| Chip | Fin de fenêtre | Consigne | Pourquoi |", "|---|---|---|---|"]
+    for c in ch["chips"]:
+        lines.append(f"| {c['nom']} | GW{c['fin']} | **{c['consigne']}** | {c['raison']} |")
+    lines.append(
+        "\nMesuré sur GW2-GW10 (A12) : choisir la GW où l'EP du banc, ou du "
+        "capitaine, est la plus haute de la fenêtre rapporte ≈ +2 pts contre une "
+        "semaine au hasard — signal faible, non prouvé. Seuls la contrainte de "
+        "fenêtre et un double match sont certains. Un chip déjà activé pour la "
+        "GW à venir n'est pas visible avant la deadline.")
+    return lines
+
+
 def _une_ligue_lines(v):
     st, em = v["standings"], v["meta"]
     titre = v["name"] or f"ligue {v['id']}"
@@ -342,6 +366,7 @@ def render(rec):
            if tr["decision"] == "transférer" else
            " le transfert gratuit (aucun gain net suffisant identifié)"),
     ]
+    lines += _chips_lines(rec.get("chips"))
 
     titre_xi = "XI calculé (non publiable)" if bloque else "XI recommandé"
     if ap:

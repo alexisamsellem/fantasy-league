@@ -13,7 +13,7 @@ rejouable à partir du seul contrat ; tout ce qui est en dessous est du contexte
 qui ne doit influencer aucune projection.
 """
 
-from . import weekly
+from . import chips, weekly
 from .rivals import exposure_conflicts, league_views
 
 
@@ -32,6 +32,18 @@ def build_recommendation(parsed, now=None, freeze_to=None):
         already_transferred=weekly.pending_transfers(parsed, contract.gw),
         pick_gw=parsed.get("last_closed_gw"))
     rec["frozen_projections"] = str(frozen) if frozen else None
+
+    # Chips (A12) : ce qui reste à jouer, et quand. Les chips joués sont une
+    # donnée personnelle : ils restent hors du contrat.
+    n_matchs = {(r.player_id, r.gw): r.n_fixtures for r in contract.rows}
+    officiels, joues = weekly.read_chips(parsed)
+    rec["chips"] = chips.verifier(
+        chips.disponibles(officiels, joues, contract.gw),
+        chips.signaux(contract.rows_for("central"),
+                      # l'effectif APRÈS le transfert recommandé, s'il y en a un
+                      [p["id"] for p in (rec.get("apres_transfert") or {}).get("squad") or []]
+                      or squad_ids,
+                      list(contract.horizon), n_matchs))
 
     # Plusieurs mini-ligues peuvent compter à la fois : elles sont lues
     # séparément, jamais moyennées. La première reste la vue par défaut pour

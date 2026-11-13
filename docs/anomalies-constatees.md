@@ -519,3 +519,64 @@ il reste hors dépôt.
 
 **Régression** : `tests/test_ligues.py::ConduiteMesureeTests` et
 `ArbitrageTests` figent la règle sur les cases de la grille.
+
+## A12 — Les chips n'étaient pas suivis — CORRIGÉ
+
+**Constaté le** 13/11/2026. Le README le disait : « pas d'optimisation de
+chips ». Or un manager suivi n'avait joué aucun de ses 4 chips de première
+moitié, qui expirent à la GW19. Dans la simulation A11, cette avance de chips
+valait 6 points de P(finir 1er).
+**Sévérité** : haute pour l'usage — un chip non joué avant sa fin de fenêtre
+est perdu.
+
+**Ce qui a été mesuré** (backtest : 24 managers réels, effectif de la GW
+précédente, projections figées GW2-GW10, 216 paires ; données personnelles
+hors dépôt). Règle testée pour chaque chip : jouer à la première GW où l'EP
+(du banc, ou du capitaine) est au moins celle des deux GW suivantes.
+
+| Chip | Gain contre une semaine au hasard | GW2 exclue | Même GW, déclenché ou non |
+|---|---|---|---|
+| Banc renforcé | +1,8 pt (IC90 −0,1 ; +4,0) | +2,1 | +1,4 |
+| Triple capitaine | +4,3 pts (IC90 +1,9 ; +7,0) | +2,0 | +3,0 |
+
+**Correction après revue adversariale.** Une première version de ce texte
+disait « signal pour le banc, aucun pour le capitaine ». C'était faux, pour
+deux raisons :
+- elle ne citait pas la ligne du capitaine (+4,3) ;
+- elle s'appuyait sur une corrélation entre effectifs (0,03), qui mesure le
+  niveau d'EP d'une équipe à l'autre, pas le choix de la semaine pour une
+  même équipe.
+
+Les deux gains bruts sont surtout un effet de date : la règle se déclenche en
+GW2-GW3 pour 22 managers sur 24, et la GW2 a vu tous les capitaines marquer
+gros (17,6 pts en moyenne). GW2 exclue, les deux valent ≈ +2 pts. Les
+intervalles supposent les managers indépendants alors que les déclenchements
+tombent sur 3 GW communes : ils sont trop étroits.
+
+**Conclusion** : signal faible et du même ordre pour les deux chips, non
+prouvé. Seuls un double match (mécanique) et la contrainte de fenêtre sont
+certains.
+
+**Correction.** `fpl_advisor/chips.py`, section « Chips » du rapport, ligne
+« Chips » du mail :
+1. fenêtres lues dans `bootstrap-static → chips` (jamais inventées) et chips
+   joués lus dans l'historique du manager ;
+2. contrainte « un chip par GW » : marge = GW restantes − chips restants ; à
+   zéro, un chip doit partir ; en dessous, les chips qui expireront sont
+   annoncés « PERDU » ;
+3. banc renforcé et triple capitaine suivent la même règle d'EP, marquée
+   « signal faible », sur un horizon coupé à la fin de fenêtre. Un double
+   match du capitaine prime ;
+4. une seule consigne « jouer » par GW, dans cet ordre : double match, banc,
+   capitaine, contrainte ;
+5. signaux calculés sur l'effectif après le transfert recommandé ;
+6. wildcard et free hit : contraintes seulement. Le plafond de gain d'un
+   wildcard est déjà chiffré par l'audit d'effectif.
+
+**Limite.** Un chip activé pour la GW à venir n'est visible dans
+l'historique public qu'après la deadline : le rapport peut en conseiller un
+second.
+
+**Régression** : `tests/test_chips.py`. Il fige les fenêtres, la marge, l'urgence
+et les chips perdus, l'horizon coupé à la fin de fenêtre, la priorité au double
+match et l'unicité de la consigne « jouer ».

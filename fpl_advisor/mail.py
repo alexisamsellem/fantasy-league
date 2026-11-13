@@ -428,6 +428,14 @@ def _ligues_html(rec):
             f'-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,'
             f'sans-serif;color:{ENCRE};">{_echap(l["lecture"])}</div>'
             f'</td></tr></table>')
+    ch = rec.get("chips") or {}
+    if ch.get("etat") == "ok":
+        txt = f"Chips : marge de {ch['marge']} semaine(s) avant la GW{ch['fin']}. " + " · ".join(
+            f"{c['nom']} : {c['consigne']}" for c in ch["chips"])
+        cartes.append(
+            f'<div style="margin-top:4px;font:400 13px/1.5 -apple-system,'
+            f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
+            f'color:{ENCRE};">{_echap(txt)}</div>')
     arb = rivals.phrase_arbitrage(rec.get("leagues") or [])
     if arb:
         cartes.append(
@@ -636,6 +644,14 @@ def render_texte(rec, maintenant=None, pieces=None):
     out += ["", "CE QUI TE FERAIT CHANGER D'AVIS"]
     for a in alertes(rec):
         out.append("  - " + a.replace("**", ""))
+
+    ch = rec.get("chips") or {}
+    if ch.get("etat") == "ok":
+        out += ["", "CHIPS"]
+        out.append(f"  Marge : {ch['marge']} semaine(s) avant la GW{ch['fin']}"
+                   + (" — un chip doit partir cette GW" if ch["urgent"] else ""))
+        for c in ch["chips"]:
+            out.append(f"  {c['nom']} : {c['consigne']}")
 
     out += ["", "TES LIGUES"]
     for l in ligues(rec):
