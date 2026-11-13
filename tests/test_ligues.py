@@ -56,6 +56,53 @@ def _parsed(leagues, moi=1, mes_ids=(10, 11)):
             "league_ids": [l["id"] for l in leagues]}
 
 
+class ConduiteMesureeTests(unittest.TestCase):
+    """Régression A11 : la règle de conduite issue du Monte Carlo de fin de
+    saison. Chaque cas est une case de la grille simulée (docs, A11)."""
+
+    def test_en_tete_ou_a_egalite_on_couvre(self):
+        for restantes in (28, 10, 2):
+            self.assertEqual(rivals.conduite(0, restantes), "couvrir")
+            self.assertEqual(rivals.conduite(-10, restantes), "couvrir")
+
+    def test_17_pts_avec_28_gw_on_maximise_sans_parier(self):
+        # Simulé : maximiser 27 %, couvrir 28 %, parier 26 % — parier ne
+        # rapporte rien. L'ancienne règle [H] (> 15 pts) disait de parier.
+        self.assertEqual(rivals.conduite(17, 28), "maximiser")
+
+    def test_le_seuil_de_pari_baisse_avec_les_gw_restantes(self):
+        self.assertEqual(rivals.conduite(40, 28), "maximiser")
+        self.assertEqual(rivals.conduite(60, 28), "parier")
+        self.assertEqual(rivals.conduite(17, 18), "maximiser")
+        self.assertEqual(rivals.conduite(25, 18), "parier")
+        self.assertEqual(rivals.conduite(5, 10), "maximiser")
+        self.assertEqual(rivals.conduite(10, 10), "parier")
+        self.assertEqual(rivals.conduite(10, 2), "parier")
+
+    def test_le_seuil_est_monotone(self):
+        seuils = [rivals.seuil_paris(n) for n in range(0, 39)]
+        self.assertEqual(seuils, sorted(seuils))
+
+    def test_la_posture_porte_la_regle_et_jamais_le_brassard_en_pari(self):
+        st = {"me": {"rank": 8}, "gap_to_leader": 91, "gap_to_next": 1}
+        p = rivals._posture(st, 28)
+        self.assertIn("PARIER", p)
+        self.assertIn("jamais au brassard", p)
+        self.assertIn(" — ", p)                # le mail découpe sur ce séparateur
+
+
+class ArbitrageTests(unittest.TestCase):
+    def test_la_conduite_sans_pari_l_emporte(self):
+        vues = [{"name": "A", "conduite": "maximiser"}, {"name": "B", "conduite": "parier"}]
+        self.assertEqual(rivals.arbitrage(vues), ("maximiser", "A"))
+        vues = [{"name": "A", "conduite": "parier"}, {"name": "B", "conduite": "couvrir"}]
+        self.assertEqual(rivals.arbitrage(vues), ("couvrir", "B"))
+
+    def test_pas_d_arbitrage_sans_desaccord(self):
+        self.assertIsNone(rivals.arbitrage([{"name": "A", "conduite": "parier"},
+                                            {"name": "B", "conduite": "parier"}]))
+
+
 class ConfigTests(unittest.TestCase):
     def test_une_seule_ligue_reste_acceptee(self):
         cfg = load_config(_cfg({"team_id": 7, "league_id": 42}))
@@ -103,8 +150,10 @@ class VuesParLigueTests(unittest.TestCase):
 
     def test_la_posture_depend_de_l_ecart_pas_d_une_moyenne(self):
         a, b = self.vues
-        self.assertIn("chasseur proche", a["posture"])
-        self.assertIn("en retard", b["posture"])
+        self.assertIn("5 pts du leader", a["posture"])
+        self.assertIn("40 pts du leader", b["posture"])
+        # A11 : à 37 GW de la fin, 40 pts se rattrapent sans parier.
+        self.assertEqual((a["conduite"], b["conduite"]), ("maximiser", "maximiser"))
 
     def test_un_peloton_compact_n_est_pas_le_meme_retard(self):
         """Être loin du leader et à un point du voisin n'appelle pas la même
@@ -114,7 +163,7 @@ class VuesParLigueTests(unittest.TestCase):
         colle = _ligue(2, "collé", {1: (60, [10], None), 2: (100, [11], None),
                                     3: (61, [12], None)})
         a, b = rivals.league_views(_parsed([loin, colle]))
-        self.assertIn("en retard", a["posture"])
+        self.assertIn("chasseur", a["posture"])
         self.assertNotIn("compact", a["posture"])
         self.assertIn("compact", b["posture"])
         self.assertEqual(a["standings"]["gap_to_leader"],

@@ -13,10 +13,43 @@ fondus dans un chiffre unique.
 # ligue à l'autre : un tiers de l'effectif d'une ligue. [H, NON CALIBRÉ]
 EO_CONFLIT = 0.33
 
-# Retard à partir duquel « suivre le peloton » ne peut plus suffire. [H]
-RETARD_CHASSEUR = 15      # pts
-# En dessous, le manager juste devant est à portée d'une seule journée. [H]
+# Conduite de ligue : MESURÉE par simulation (A11, docs/anomalies-constatees.md).
+# Monte Carlo de la fin de saison sur deux mini-ligues réelles, 24 managers,
+# effectifs et points réels GW1-GW10, chips restants compris. Trois conduites
+# comparées par P(finir 1er) : couvrir le leader, maximiser l'espérance,
+# parier sur des différentiels. Retard au-delà duquel parier rapporte plus que
+# maximiser, selon le nombre de GW restantes :
+SEUIL_PARIS = ((24, 45), (12, 20), (0, 8))      # (GW restantes ≥, retard > pts)
+NB_GW_SAISON = 38
+# Peloton compact : le manager juste devant est à portée d'une journée. [H]
 PELOTON_COMPACT = 5       # pts
+
+
+def seuil_paris(gw_restantes):
+    """Retard (pts) au-delà duquel des paris modérés battent l'espérance."""
+    for mini, seuil in SEUIL_PARIS:
+        if gw_restantes >= mini:
+            return seuil
+    return SEUIL_PARIS[-1][1]
+
+
+def conduite(ecart_leader, gw_restantes):
+    """COUVRIR, MAXIMISER ou PARIER — la règle mesurée (A11).
+
+    `ecart_leader` : points de retard sur le premier (0 si en tête ou à égalité).
+    Ce que la simulation a montré, et que la règle applique :
+      - en tête ou à égalité, couvrir rapporte (+9 points de P(1er) à égalité
+        avec 28 GW restantes) ;
+      - en retard modéré, maximiser l'espérance ; copier le leader coûte cher
+        dès qu'il reste 18 GW ou moins (−9 points de P(1er) à 17 pts de retard) ;
+      - parier ne paie qu'au-delà du seuil, et peu (+1 à +3 points de P(1er)) ;
+      - un capitaine différentiel coûte toujours (−16 points de P(1er)).
+    """
+    if ecart_leader <= 0:
+        return "couvrir"
+    if ecart_leader > seuil_paris(gw_restantes):
+        return "parier"
+    return "maximiser"
 
 
 def _exposure(rivals, elements, my_ids):
@@ -68,31 +101,53 @@ def _standings(rows, team_id, rivals):
     return out
 
 
-def _posture(st):
-    """Lecture de la position, en une ligne. Descriptive et [H] : le moteur
-    ne décide rien à partir de ça, il donne au lecteur de quoi arbitrer.
+def arbitrage(vues):
+    """Une seule équipe pour plusieurs ligues : quelle conduite l'emporte ?
 
-    L'écart au leader ne suffit pas à décrire une position. Être 10ᵉ à 20 pts
-    du premier mais à 1 pt du 9ᵉ n'est pas la même chose qu'être 10ᵉ à 20 pts
-    du premier et 15 du 9ᵉ : dans le premier cas, gagner des places est facile
-    et gagner la ligue est un autre problème. Les deux écarts sont donc lus."""
+    Mesuré (A11) : parier coûte de l'espérance, donc des chances dans la ligue
+    où l'on maximise (≈ −1 point de P(1er) à 17 pts de retard), pour un gain
+    plus petit dans la ligue où l'on parie (≈ +0,7 point à 91 pts). La conduite
+    sans pari l'emporte donc dès qu'une ligue la demande. Retourne
+    (conduite, ligue qui la dicte) ou None si une seule conduite est en jeu."""
+    c = [(v.get("conduite"), v.get("name") or str(v.get("id"))) for v in vues
+         if v.get("conduite")]
+    if len({x for x, _ in c}) < 2:
+        return None
+    for prio in ("couvrir", "maximiser"):
+        for x, nom in c:
+            if x == prio:
+                return x, nom
+    return None
+
+
+def _posture(st, gw_restantes=None):
+    """Lecture de la position et conduite mesurée, en une ligne :
+    « situation — conduite ». Le moteur ne décide rien à partir de ça : il
+    donne au lecteur la règle que la simulation a validée (A11)."""
     gap = st.get("gap_to_leader")
     if st.get("me") is None or gap is None:
         return "position inconnue dans cette ligue"
-    if gap == 0:
-        return ("en tête — le risque est de PERDRE la place : coller aux choix "
-                "majoritaires protège l'avance [H]")
-    if gap <= RETARD_CHASSEUR:
-        return (f"chasseur proche ({gap} pts du leader) — suivre le peloton "
-                "coûte peu, différencier tard suffit à doubler [H]")
+    restantes = NB_GW_SAISON if gw_restantes is None else gw_restantes
     suivant = st.get("gap_to_next")
-    if suivant is not None and suivant <= PELOTON_COMPACT:
-        return (f"en retard du leader ({gap} pts) mais le peloton est compact "
-                f"({suivant} pt(s) devant) — gagner des places est à portée "
-                "d'une journée, gagner la ligue demande des paris que les "
-                "autres ne prennent pas [H]")
-    return (f"en retard ({gap} pts du leader) — suivre le peloton conserve "
-            "l'écart : il faut des paris que les autres ne prennent pas [H]")
+    compact = (gap > 0 and suivant is not None and suivant <= PELOTON_COMPACT
+               and suivant < gap)
+    situation = ("en tête" if gap <= 0 else
+                 f"{'chasseur' if conduite(gap, restantes) == 'maximiser' else 'distancé'}"
+                 f" ({gap} pts du leader, {restantes} GW restantes)")
+    if compact:
+        situation += (f", peloton compact ({suivant} pt(s) devant : gagner une "
+                      "place est à portée d'une journée)")
+    c = conduite(gap, restantes)
+    if c == "couvrir":
+        regle = ("COUVRIR : posséder le capitaine et les joueurs clés du "
+                 "poursuivant le plus proche ; jamais de capitaine différentiel")
+    elif c == "maximiser":
+        regle = ("MAXIMISER : suivre le conseil, sans pari et sans copier le "
+                 "leader ; jouer ses chips")
+    else:
+        regle = ("PARIER, modérément : un ou deux différentiels dans "
+                 "l'effectif, jamais au brassard")
+    return f"{situation} — {regle}"
 
 
 def league_view(parsed, league):
@@ -103,7 +158,11 @@ def league_view(parsed, league):
     st = _standings(league.get("standings", []), parsed.get("team_id"), rivals)
     return {
         "id": league.get("id"), "name": league.get("name", ""),
-        "standings": st, "posture": _posture(st), "exposure": table,
+        "standings": st, "exposure": table,
+        "posture": _posture(st, None if parsed.get("last_closed_gw") is None
+                            else NB_GW_SAISON - parsed["last_closed_gw"]),
+        "conduite": (None if st.get("gap_to_leader") is None else conduite(
+            st["gap_to_leader"], NB_GW_SAISON - (parsed.get("last_closed_gw") or 0))),
         "meta": {"gw": parsed.get("last_closed_gw"), "n_rivals": len(rivals),
                  "n_with_picks": n_picks},
     }
