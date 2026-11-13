@@ -6,16 +6,11 @@ Ce que ces tests protègent :
      chip joué dans une fenêtre ne compte pas pour l'autre ;
   2. la contrainte « un chip par GW » : marge, urgence, et une seule consigne
      « jouer » par GW ;
-  3. les consignes suivent ce qui a été mesuré : banc renforcé sur l'EP du
-     banc, triple capitaine seulement sur double match ;
-  4. la prémisse du triple capitaine, sur données publiques : l'EP ne classe
-     pas les candidats capitaines. Si un futur moteur y parvient, ce test
-     échoue et la règle doit être revue.
+  3. les consignes suivent ce qui a été mesuré : même règle (faible) pour le
+     banc et le capitaine, priorité au double match, horizon coupé à la fin
+     de fenêtre, chips perdus annoncés quand la marge est négative.
 """
 
-import csv
-import gzip
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -81,11 +76,16 @@ class ConsignesTests(unittest.TestCase):
         self.assertEqual(bb(attendre)["consigne"], "ATTENDRE")
         self.assertIn("GW12", bb(attendre)["raison"])
 
-    def test_triple_capitaine_sans_double_match_est_libre(self):
+    def test_triple_capitaine_suit_la_meme_regle_que_le_banc(self):
+        # Revue A12 : hors GW2, les deux signaux valent ≈ +2 pts ; aucune
+        # raison de traiter le capitaine autrement que le banc.
         d = chips.disponibles(OFFICIELS, [], 11)
-        tc = next(c for c in chips.verifier(d, _sig([6, 9, 7]))["chips"] if c["name"] == "3xc")
-        self.assertEqual(tc["consigne"], "LIBRE")
-        self.assertIn("ne prédit pas", tc["raison"])
+        sig = _sig([6, 9, 7])
+        sig[0]["ep_capitaine"], sig[1]["ep_capitaine"], sig[2]["ep_capitaine"] = 7.0, 6.0, 5.0
+        v = chips.verifier(d, sig)
+        tc = next(c for c in v["chips"] if c["name"] == "3xc")
+        self.assertEqual(tc["consigne"], "JOUER CETTE GW")
+        self.assertIn("signal faible", tc["raison"])
 
     def test_triple_capitaine_sur_double_match(self):
         d = chips.disponibles(OFFICIELS, [], 11)
@@ -98,40 +98,39 @@ class ConsignesTests(unittest.TestCase):
         tc = next(c for c in v["chips"] if c["name"] == "3xc")
         self.assertEqual(tc["consigne"], "ATTENDRE")
 
+    def test_l_horizon_s_arrete_a_la_fin_de_fenetre(self):
+        # GW18, banc renforcé seul : la GW20 est hors fenêtre et ne compte pas.
+        d = chips.disponibles(OFFICIELS, [{"name": n, "event": 5} for n in
+                                          ("wildcard", "freehit", "3xc")], 18)
+        v = chips.verifier(d, _sig([6.0, 7.0, 9.0], gw=18))
+        bb = next(c for c in v["chips"] if c["name"] == "bboost")
+        self.assertEqual(bb["consigne"], "ATTENDRE")
+        self.assertIn("GW19", bb["raison"])
+        self.assertNotIn("GW20", bb["raison"])
 
-class PremisseTripleCapitaineTests(unittest.TestCase):
-    """Données publiques : projections figées GW2-GW10 et points officiels."""
+    def test_double_match_apres_expiration_ignore(self):
+        d = chips.disponibles(OFFICIELS, [{"name": n, "event": 5} for n in
+                                          ("wildcard", "freehit", "bboost")], 19)
+        v = chips.verifier(d, _sig([6, 7, 9], cap_matchs=(1, 2, 1), gw=19))
+        tc = next(c for c in v["chips"] if c["name"] == "3xc")
+        self.assertEqual(tc["consigne"], "JOUER CETTE GW")     # dernière GW, pas d'attente
 
-    def test_l_ep_ne_classe_pas_les_candidats_capitaines(self):
-        with gzip.open(RACINE / "tests" / "fixtures" / "resultats-GW2-GW10.csv.gz", "rt") as f:
-            pts = {(int(r["gw"]), int(r["player_id"])): int(r["total_points"])
-                   for r in csv.DictReader(f)}
-        paires = []
-        for gw in range(2, 11):
-            with gzip.open(RACINE / "projections-figees" / f"projections-GW{gw}.json.gz") as f:
-                d = json.load(f)
-            paires += [(r["ep"], pts[(gw, r["player_id"])]) for r in d["rows"]
-                       if r["gw"] == gw and r["ep"] >= 4.5 and (gw, r["player_id"]) in pts]
-        self.assertGreater(len(paires), 40)
+    def test_marge_negative_annonce_des_chips_perdus(self):
+        d = chips.disponibles(OFFICIELS, [], 19)                # 4 chips, 1 GW
+        v = chips.verifier(d, _sig([6], gw=19))
+        etats = [c["consigne"] for c in v["chips"]]
+        self.assertEqual(etats.count("JOUER CETTE GW"), 1)
+        self.assertEqual(etats.count("PERDU"), 3)
 
-        def rangs(v):
-            o = sorted(range(len(v)), key=lambda i: v[i])
-            r = [0.0] * len(v)
-            i = 0
-            while i < len(o):
-                j = i
-                while j + 1 < len(o) and v[o[j + 1]] == v[o[i]]:
-                    j += 1
-                for k in range(i, j + 1):
-                    r[o[k]] = (i + j) / 2
-                i = j + 1
-            return r
-        x, y = rangs([a for a, _ in paires]), rangs([b for _, b in paires])
-        n = len(x)
-        mx, my = sum(x) / n, sum(y) / n
-        cov = sum((a - mx) * (b - my) for a, b in zip(x, y))
-        rho = cov / (sum((a - mx) ** 2 for a in x) * sum((b - my) ** 2 for b in y)) ** 0.5
-        self.assertLess(rho, 0.2, "l'EP classe désormais les capitaines : revoir A12")
+    def test_un_joueur_absent_n_efface_pas_les_signaux(self):
+        rows = [{"id": i, "web_name": f"J{i}", "element_type": t, "team": i,
+                 "now_cost": 50, "p_play": 0.9, "p60": 0.8, "p0": 0.1,
+                 "eps": {11: float(i), 12: 1.0}}
+                for i, t in enumerate([1, 1] + [2] * 5 + [3] * 5 + [4] * 3, start=1)]
+        sig = chips.signaux(rows, [r["id"] for r in rows] + [999], [11, 12],
+                            {(15, 11): 2})
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig[0]["matchs_capitaine"], 2)
 
 
 class RapportTests(unittest.TestCase):

@@ -39,7 +39,10 @@ def build_recommendation(parsed, now=None, freeze_to=None):
     officiels, joues = weekly.read_chips(parsed)
     rec["chips"] = chips.verifier(
         chips.disponibles(officiels, joues, contract.gw),
-        chips.signaux(contract.rows_for("central"), squad_ids,
+        chips.signaux(contract.rows_for("central"),
+                      # l'effectif APRÈS le transfert recommandé, s'il y en a un
+                      [p["id"] for p in (rec.get("apres_transfert") or {}).get("squad") or []]
+                      or squad_ids,
                       list(contract.horizon), n_matchs))
 
     # Plusieurs mini-ligues peuvent compter à la fois : elles sont lues

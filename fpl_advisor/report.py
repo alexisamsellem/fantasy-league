@@ -214,9 +214,11 @@ def _chips_lines(ch):
     for c in ch["chips"]:
         lines.append(f"| {c['nom']} | GW{c['fin']} | **{c['consigne']}** | {c['raison']} |")
     lines.append(
-        "\nMesuré sur GW2-GW10 (A12) : l'EP du banc prédit les points du banc, "
-        "l'EP du capitaine ne prédit pas les siens. Le triple capitaine n'a donc "
-        "pas de bon moment prévisible hors double match.")
+        "\nMesuré sur GW2-GW10 (A12) : choisir la GW où l'EP du banc, ou du "
+        "capitaine, est la plus haute de la fenêtre rapporte ≈ +2 pts contre une "
+        "semaine au hasard — signal faible, non prouvé. Seuls la contrainte de "
+        "fenêtre et un double match sont certains. Un chip déjà activé pour la "
+        "GW à venir n'est pas visible avant la deadline.")
     return lines
 
 

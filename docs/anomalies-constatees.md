@@ -529,36 +529,54 @@ valait 6 points de P(finir 1er).
 **Sévérité** : haute pour l'usage — un chip non joué avant sa fin de fenêtre
 est perdu.
 
-**Ce qui a été mesuré avant de rien écrire** (backtest : 24 managers réels,
-effectif de la GW précédente, projections figées GW2-GW10, 216 paires ;
-données personnelles hors dépôt) :
+**Ce qui a été mesuré** (backtest : 24 managers réels, effectif de la GW
+précédente, projections figées GW2-GW10, 216 paires ; données personnelles
+hors dépôt). Règle testée pour chaque chip : jouer à la première GW où l'EP
+(du banc, ou du capitaine) est au moins celle des deux GW suivantes.
 
-| Chip | Signal du moteur | Corrélation EP → points |
-|---|---|---|
-| Banc renforcé | EP du banc (4 remplaçants choisis par le moteur) | 0,59 (pente 1,32) |
-| Triple capitaine | EP du capitaine | 0,03 (pente 0,23) |
+| Chip | Gain contre une semaine au hasard | GW2 exclue | Même GW, déclenché ou non |
+|---|---|---|---|
+| Banc renforcé | +1,8 pt (IC90 −0,1 ; +4,0) | +2,1 | +1,4 |
+| Triple capitaine | +4,3 pts (IC90 +1,9 ; +7,0) | +2,0 | +3,0 |
 
-- **Banc renforcé** : la règle « jouer quand l'EP du banc de la GW est au
-  moins celle des deux suivantes » rapporte 9,8 pts contre 8,1 pour une
-  semaine au hasard (+1,8 ; IC90 −0,1 ; +4,0). Signal faible mais réel.
-- **Triple capitaine** : aucun signal. Sur données publiques, parmi les 57
-  candidats capitaines à EP ≥ 4,5, le Spearman EP → points vaut 0,00. Le
-  meilleur EP de chaque GW (5,4 à 7,0) a rapporté de 1 à 23 pts sans lien.
-  Seul un double match change l'espérance, mécaniquement.
-- **Wildcard, free hit** : rien de mesurable ici. Le plafond de gain d'un
-  wildcard est déjà chiffré par l'audit d'effectif (`retard`).
+**Correction après revue adversariale.** Une première version de ce texte
+disait « signal pour le banc, aucun pour le capitaine ». C'était faux, pour
+deux raisons :
+- elle ne citait pas la ligne du capitaine (+4,3) ;
+- elle s'appuyait sur une corrélation entre effectifs (0,03), qui mesure le
+  niveau d'EP d'une équipe à l'autre, pas le choix de la semaine pour une
+  même équipe.
 
-**Correction.** `fpl_advisor/chips.py`, section « Chips » du rapport
-hebdomadaire :
+Les deux gains bruts sont surtout un effet de date : la règle se déclenche en
+GW2-GW3 pour 22 managers sur 24, et la GW2 a vu tous les capitaines marquer
+gros (17,6 pts en moyenne). GW2 exclue, les deux valent ≈ +2 pts. Les
+intervalles supposent les managers indépendants alors que les déclenchements
+tombent sur 3 GW communes : ils sont trop étroits.
+
+**Conclusion** : signal faible et du même ordre pour les deux chips, non
+prouvé. Seuls un double match (mécanique) et la contrainte de fenêtre sont
+certains.
+
+**Correction.** `fpl_advisor/chips.py`, section « Chips » du rapport, ligne
+« Chips » du mail :
 1. fenêtres lues dans `bootstrap-static → chips` (jamais inventées) et chips
    joués lus dans l'historique du manager ;
 2. contrainte « un chip par GW » : marge = GW restantes − chips restants ; à
-   zéro, un chip doit partir ;
-3. consignes : banc renforcé sur l'EP du banc ; triple capitaine « libre »
-   sauf double match ; une seule consigne « jouer » par GW (double match,
-   puis banc, puis contrainte).
+   zéro, un chip doit partir ; en dessous, les chips qui expireront sont
+   annoncés « PERDU » ;
+3. banc renforcé et triple capitaine suivent la même règle d'EP, marquée
+   « signal faible », sur un horizon coupé à la fin de fenêtre. Un double
+   match du capitaine prime ;
+4. une seule consigne « jouer » par GW, dans cet ordre : double match, banc,
+   capitaine, contrainte ;
+5. signaux calculés sur l'effectif après le transfert recommandé ;
+6. wildcard et free hit : contraintes seulement. Le plafond de gain d'un
+   wildcard est déjà chiffré par l'audit d'effectif.
 
-**Régression** : `tests/test_chips.py`. Il fige les fenêtres, la marge et
-l'urgence, les consignes, et la prémisse publique du triple capitaine : si un
-futur moteur classe enfin les capitaines, le test échoue et la règle doit être
-revue.
+**Limite.** Un chip activé pour la GW à venir n'est visible dans
+l'historique public qu'après la deadline : le rapport peut en conseiller un
+second.
+
+**Régression** : `tests/test_chips.py`. Il fige les fenêtres, la marge, l'urgence
+et les chips perdus, l'horizon coupé à la fin de fenêtre, la priorité au double
+match et l'unicité de la consigne « jouer ».
