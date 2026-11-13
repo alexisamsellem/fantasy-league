@@ -21,6 +21,8 @@ Contraintes de la messagerie, toutes assumées :
 
 from datetime import datetime, timezone
 
+from . import rivals
+
 POS = {1: "GB", 2: "DEF", 3: "MIL", 4: "ATT"}
 
 # Palette : une seule teinte d'accent par état, contrastée sur fond clair. Les
@@ -407,7 +409,7 @@ def _chaine_html(rec):
 def _ligues_html(rec):
     cartes = []
     for l in ligues(rec):
-        chaud = "retard" in l["lecture"] or "paris" in l["lecture"]
+        chaud = "PARIER" in l["lecture"]
         trait, fond = (("#c2410c", "#ffedd5") if chaud
                        else ("#0369a1", "#e0f2fe"))
         cartes.append(
@@ -426,6 +428,12 @@ def _ligues_html(rec):
             f'-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,'
             f'sans-serif;color:{ENCRE};">{_echap(l["lecture"])}</div>'
             f'</td></tr></table>')
+    arb = rivals.phrase_arbitrage(rec.get("leagues") or [])
+    if arb:
+        cartes.append(
+            f'<div style="margin-top:4px;font:700 13px/1.5 -apple-system,'
+            f'BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;'
+            f'color:{ENCRE};">{_echap(arb)}</div>')
     return "".join(cartes)
 
 
@@ -633,6 +641,9 @@ def render_texte(rec, maintenant=None, pieces=None):
     for l in ligues(rec):
         out.append(f"  {l['nom']} : {l['rang']}, {l['ecart']}, {l['voisin']}")
         out.append(f"    {l['lecture']}")
+    arb = rivals.phrase_arbitrage(rec.get("leagues") or [])
+    if arb:
+        out.append(f"  {arb}")
 
     verts = sum(1 for c in (v.checks if v is not None else []) if c.state == "accepté")
     total = len(v.checks) if v is not None else 0

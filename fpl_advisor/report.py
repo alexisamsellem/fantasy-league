@@ -244,13 +244,9 @@ def _league_lines(rec):
     for v in vues:
         lines += _une_ligue_lines(v)
 
-    arb = rivals.arbitrage(vues)
+    arb = rivals.phrase_arbitrage(vues)
     if arb:
-        lines.append(
-            f"\n**Arbitrage entre ligues : {arb[0].upper()}**, dicté par "
-            f"« {arb[1]} ». Une seule équipe sert toutes les ligues ; parier "
-            "coûte de l'espérance dans la ligue où l'on peut gagner sans "
-            "parier, pour un gain plus petit ailleurs (mesuré, A11).")
+        lines.append(f"\n**{arb}**")
 
     conflits = rec.get("exposure_conflicts") or []
     if len(vues) > 1:

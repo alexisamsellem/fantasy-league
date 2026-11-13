@@ -482,17 +482,30 @@ P paris modérés (+10 pts d'écart-type par GW, coût 0,5 pt/GW) :
 | 5 | P 3 % | P 9 % | P 16 % | P 21 % | P 26 % | E 31 % | E 36 % | C 43 % | C 72 % |
 
 Les écarts entre E, C et P sont souvent de 1 à 3 points, de l'ordre du bruit
-de simulation : la règle retient ce qui est robuste.
-- **Couvrir** en tête ou à égalité.
-- **Copier le leader en retard** coûte cher dès 18 GW restantes : 15 % contre
-  24 % à 17 pts.
-- **Parier** seulement au-delà de 45 pts de retard (≥ 24 GW restantes),
-  20 pts (12 à 23), 8 pts (moins de 12). Le gain est faible.
+de simulation : la règle retient ce qui est robuste. Revue adversariale
+comprise (5 tirages × 4000 par case) :
+
+- **Couvrir** avec au moins 5 pts d'avance. À égalité, couvrir et maximiser
+  se valent (18 GW : 32,8 % contre 33,6 %) : on maximise.
+- **Copier le leader en retard** : à 24-28 GW restantes, copier égale ou bat
+  maximiser (−10 pts : 34,9 % contre 30,8 %). C'est dû à l'avance de chips de
+  CE manager sur le leader, donc propre à sa situation. La règle ne le
+  déconseille donc pas à ce stade. Dès 18 GW restantes, copier coûte cher
+  (15 % contre 24 % à 17 pts) : la règle le déconseille.
+- **Parier** au-delà de 45 pts de retard (≥ 24 GW restantes), 20 pts (12 à
+  23) et 8 pts (moins de 12). **[H]** : ces seuils valent pour des paris à
+  +10 pts d'écart-type par GW et 0,5 pt/GW de coût. Avec 1 pt/GW de coût, à
+  18 GW et −25 pts, parier perd 2,8 points de P(1er). Avec 6 pts d'écart-type,
+  parier ne paie nulle part sur la grille.
 - **Jamais de capitaine différentiel** : −16 points de P(1er).
 
-**Arbitrage entre ligues.** Une équipe pour deux ligues : parier pour la
-ligue lointaine (91 pts) fait passer P(1er) de 1,3 % à 2,0 % là-bas, et de
-27,4 % à 26,3 % dans la ligue proche. La conduite sans pari l'emporte.
+**Arbitrage entre ligues.** Une équipe pour deux ligues. Mesuré à 28 GW
+restantes seulement : parier pour la ligue lointaine (91 pts) fait passer
+P(1er) de 1,3 % à 2,0 % là-bas, et de 27,4 % à 26,3 % dans la ligue proche.
+La conduite sans pari l'emporte. Plus tard, le rapport s'inverse : à 10 GW,
+parier coûte 0,8 point à −5 et rapporte 2,0 à −25. En deçà de 24 GW
+restantes, et pour couvrir contre maximiser, l'arbitrage n'est pas mesuré :
+le rapport et le mail le disent et laissent choisir.
 
 **Sensibilité.** P(1er) dans la ligue proche va de 15 % (talents supposés
 égaux) à 37 % (talents non rétrécis). Le classement des conduites tient,
